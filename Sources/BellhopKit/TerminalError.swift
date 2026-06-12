@@ -1,0 +1,21 @@
+//
+//  BellhopKit
+//
+//  Copyright © 2026 Unpxre (GitHub: UnpxreTW)
+//  Licensed under the Apache License 2.0. See LICENSE for details.
+//
+//  SPDX-License-Identifier: Apache-2.0
+
+import Foundation
+
+/// osascript 執行失敗。
+enum TerminalError: Error, CustomStringConvertible {
+	case osascriptFailed(String)
+
+	var description: String {
+		switch self {
+		case let .osascriptFailed(message):
+			"osascript failed: \(message)"
+		}
+	}
+}
