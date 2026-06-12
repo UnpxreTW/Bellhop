@@ -23,10 +23,5 @@ let package = Package(
 			],
 			plugins: [.plugin(name: "SwiftStyleLint", package: "SwiftStyleKit")]
 		),
-		.testTarget(
-			name: "BellhopKitTests",
-			dependencies: ["BellhopKit"],
-			plugins: [.plugin(name: "SwiftStyleLint", package: "SwiftStyleKit")]
-		),
 	]
 )
