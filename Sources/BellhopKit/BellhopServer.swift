@@ -2,9 +2,9 @@
 //  BellhopKit
 //
 //  Copyright © 2026 Unpxre (GitHub: UnpxreTW)
-//  Licensed under the MIT License. See LICENSE for details.
+//  Licensed under the Apache License 2.0. See LICENSE for details.
 //
-//  SPDX-License-Identifier: MIT
+//  SPDX-License-Identifier: Apache-2.0
 
 import Foundation
 import MCP
