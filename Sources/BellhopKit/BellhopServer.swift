@@ -25,11 +25,17 @@ public enum BellhopServer {
 		let server: Server = .init(
 			name: name,
 			version: version,
-			instructions: "Operate macOS through purpose-built, typed tools.",
+			instructions: """
+				Operate macOS through purpose-built, typed tools. \
+				Currently exposes Terminal.app window control.
+				""",
 			capabilities: .init(tools: .init(listChanged: false))
 		)
 		await server.withMethodHandler(ListTools.self) { _ in
-			ListTools.Result(tools: [])
+			ListTools.Result(tools: TerminalTools.all)
+		}
+		await server.withMethodHandler(CallTool.self) { params in
+			TerminalTools.handle(name: params.name, arguments: params.arguments)
 		}
 		return server
 	}
