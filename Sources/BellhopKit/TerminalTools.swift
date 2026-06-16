@@ -71,6 +71,43 @@ enum TerminalTools {
 				"type": .string("object"),
 				"properties": .object([:])
 			])
+		),
+		Tool(
+			name: "set_terminal_bounds",
+			description: """
+				Resize and/or move a Terminal.app window. Works even when the screen \
+				is locked. width/height are required; x/y default to the window's \
+				current top-left; window_id defaults to the frontmost window. \
+				Returns the resulting bounds.
+				""",
+			inputSchema: .object([
+				"type": .string("object"),
+				"properties": .object([
+					"width": .object([
+						"type": .string("integer"),
+						"description": .string("New window width in points.")
+					]),
+					"height": .object([
+						"type": .string("integer"),
+						"description": .string("New window height in points.")
+					]),
+					"x": .object([
+						"type": .string("integer"),
+						"description": .string("New left position; defaults to current.")
+					]),
+					"y": .object([
+						"type": .string("integer"),
+						"description": .string("New top position; defaults to current.")
+					]),
+					"window_id": .object([
+						"type": .string("integer"),
+						"description": .string(
+							"Target window id (from list_terminal_windows); defaults to frontmost."
+						)
+					])
+				]),
+				"required": .array([.string("width"), .string("height")])
+			])
 		)
 	]
 
@@ -86,6 +123,8 @@ enum TerminalTools {
 				return try runInFrontTerminal(arguments: arguments)
 			case "list_terminal_windows":
 				return try listTerminalWindows()
+			case "set_terminal_bounds":
+				return try setTerminalBounds(arguments: arguments)
 			default:
 				return .init(
 					content: [.text(text: "Unknown tool: \(name)", annotations: nil, _meta: nil)],
@@ -185,5 +224,31 @@ enum TerminalTools {
 			],
 			isError: false
 		)
+	}
+
+	private static func setTerminalBounds(arguments: [String: Value]?) throws -> CallTool.Result {
+		guard let width = arguments?["width"]?.intValue, let height = arguments?["height"]?.intValue else {
+			return .init(
+				content: [.text(text: "Missing required arguments: width, height", annotations: nil, _meta: nil)],
+				isError: true
+			)
+		}
+		// 純數值參數、無字串注入面：window_id / x / y 不存在時以 AppleScript 變數補當前值。
+		let windowRef = arguments?["window_id"]?.intValue.map { "window id \($0)" } ?? "front window"
+		let leftExpr = arguments?["x"]?.intValue.map(String.init) ?? "l"
+		let topExpr = arguments?["y"]?.intValue.map(String.init) ?? "t"
+		let script = """
+			tell application "Terminal"
+			\tset theWindow to \(windowRef)
+			\tset {l, t, r, b} to bounds of theWindow
+			\tset bounds of theWindow to ¬
+			\t\t{\(leftExpr), \(topExpr), (\(leftExpr)) + \(width), (\(topExpr)) + \(height)}
+			\tset {nl, nt, nr, nb} to bounds of theWindow
+			\treturn (nl as string) & ", " & (nt as string) & ", " & ¬
+			\t\t(nr as string) & ", " & (nb as string)
+			end tell
+			"""
+		let out = try runOsascript(script)
+		return .init(content: [.text(text: out, annotations: nil, _meta: nil)], isError: false)
 	}
 }
