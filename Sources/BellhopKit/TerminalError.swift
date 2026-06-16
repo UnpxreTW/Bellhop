@@ -8,9 +8,17 @@
 
 import Foundation
 
+// MARK: - TerminalError
+
 /// osascript 執行失敗。
-enum TerminalError: Error, CustomStringConvertible {
+enum TerminalError: Error {
+
 	case osascriptFailed(String)
+}
+
+// MARK: - + CustomStringConvertible
+
+extension TerminalError: CustomStringConvertible {
 
 	var description: String {
 		switch self {
