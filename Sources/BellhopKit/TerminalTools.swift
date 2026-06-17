@@ -23,7 +23,7 @@ enum TerminalTools {
 	/// 對 client 曝光的工具，依列出順序。
 	static let all: [Tool] = [
 		Tool(
-			name: "open_terminal",
+			name: "terminal_open",
 			description: """
 				Open a new Terminal.app window, optionally cd-ing into a directory \
 				and running a command. Works even when the screen is locked. \
@@ -48,7 +48,7 @@ enum TerminalTools {
 			])
 		),
 		Tool(
-			name: "run_in_front_terminal",
+			name: "terminal_run_in_front",
 			description: """
 				Run a command in the current (frontmost) Terminal window instead of \
 				opening a new one. Fails if no Terminal window is open.
@@ -65,7 +65,7 @@ enum TerminalTools {
 			])
 		),
 		Tool(
-			name: "list_terminal_windows",
+			name: "terminal_list_windows",
 			description: "List open Terminal.app windows with their ids and titles.",
 			inputSchema: .object([
 				"type": .string("object"),
@@ -80,11 +80,11 @@ enum TerminalTools {
 	static func handle(name: String, arguments: [String: Value]?) -> CallTool.Result {
 		do {
 			switch name {
-			case "open_terminal":
+			case "terminal_open":
 				return try openTerminal(arguments: arguments)
-			case "run_in_front_terminal":
+			case "terminal_run_in_front":
 				return try runInFrontTerminal(arguments: arguments)
-			case "list_terminal_windows":
+			case "terminal_list_windows":
 				return try listTerminalWindows()
 			default:
 				return .init(
