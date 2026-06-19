@@ -73,9 +73,10 @@ enum TerminalTools {
 		),
 		Tool(
 			name: "terminal_list_windows",
-			description:
-			"List open Terminal.app windows with their ids, titles, and busy state "
-				+ "(busy = a program is running, so terminal_run would refuse it).",
+			description: """
+				List open Terminal.app windows with their ids, titles, and busy state \
+				(busy = a program is running, so terminal_run would refuse it).
+				""",
 			inputSchema: .object([
 				"type": .string("object"),
 				"properties": .object([:])
@@ -189,9 +190,10 @@ enum TerminalTools {
 			return .init(
 				content: [
 					.text(
-						text:
-						"Window \(windowID) is busy (a program is running); refusing to inject. "
-							+ "Pick an idle window via terminal_list_windows, or terminal_open a new one.",
+						text: """
+							Window \(windowID) is busy (a program is running); refusing to inject. \
+							Pick an idle window via terminal_list_windows, or terminal_open a new one.
+							""",
 						annotations: nil, _meta: nil
 					)
 				],
