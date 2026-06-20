@@ -24,27 +24,40 @@ Bellhop 是用 Swift 寫的 [MCP](https://modelcontextprotocol.io)（Model Conte
 
 ## 安裝與使用
 
-從原始碼建置（工具鏈需求見〈開發〉）：
+到 [Releases](https://github.com/UnpxreTW/Bellhop/releases) 下載編譯好的 `Bellhop` 執行檔。下載後驗證 checksum（每個 release 附 `SHA256SUMS`）：
 
 ```sh
-swift build -c release
+shasum -a 256 -c SHA256SUMS
 ```
 
-把產出的 binary 註冊進 MCP client。以 Claude Code 為例，寫進 `~/.claude.json` 頂層 `mcpServers`（與其他 server 同層）：
+下載的執行檔帶 quarantine，Gatekeeper 會擋，先移除：
+
+```sh
+xattr -dr com.apple.quarantine /path/to/Bellhop
+```
+
+註冊進 MCP client。以 Claude Code 為例，寫進 `~/.claude.json` 頂層 `mcpServers`（與其他 server 同層；`command` 給執行檔的絕對路徑）：
 
 ```json
 "bellhop": {
   "type": "stdio",
-  "command": "/絕對路徑/Bellhop/.build/release/Bellhop"
+  "command": "/path/to/Bellhop"
 }
 ```
 
 `claude mcp list` 應顯示 `bellhop ✔ Connected`。首次呼叫工具時，macOS 會要求授權 Terminal.app 的 Automation 權限。
 
-> 編譯產物部署目標為 macOS 14+；亦即 binary 可在 macOS 14 以上執行（注意「建置」的系統需求較高，見下）。
+> 執行需求：macOS 14+。
 
 ## 開發
 
-- **工具鏈**：Swift 6.2 / Xcode 26。**Xcode 26 需 macOS 15.6+**——故建置在 macOS 15.6+ 環境，產物的部署目標則下探到 macOS 14。
+從原始碼建置：
+
+```sh
+swift build -c release
+# 產物：.build/release/Bellhop
+```
+
+- **工具鏈**：Swift 6.2 / Xcode 26。**Xcode 26 需 macOS 15.6+**——故建置在 macOS 15.6+ 環境，產物部署目標則下探到 macOS 14。
 - **Lint / format**：[SwiftStyleKit](https://github.com/UnpxreTW/SwiftStyleKit)（SwiftLint + SwiftFormat 打包）；`SWIFTSTYLELINT_STRICT=1` 把 warning 升 error。
 - **測試 / CI**：`swift build` / `swift test`；GitHub Actions 跑 build 與 REUSE 授權合規檢查。
