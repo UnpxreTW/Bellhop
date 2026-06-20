@@ -48,25 +48,35 @@ enum TerminalTools {
 			])
 		),
 		Tool(
-			name: "terminal_run_in_front",
+			name: "terminal_run",
 			description: """
-				Run a command in the current (frontmost) Terminal window instead of \
-				opening a new one. Fails if no Terminal window is open.
+				Run a command in an existing Terminal.app window identified by \
+				window_id (from terminal_list_windows or terminal_open). The command \
+				is typed into that window's current tab, so the tool refuses (isError) \
+				when the window is busy — a program is already running in it — to avoid \
+				injecting into it. Only runs in a window sitting at a shell prompt.
 				""",
 			inputSchema: .object([
 				"type": .string("object"),
 				"properties": .object([
 					"command": .object([
 						"type": .string("string"),
-						"description": .string("Shell command to run in the frontmost window.")
+						"description": .string("Shell command to run.")
+					]),
+					"window_id": .object([
+						"type": .string("integer"),
+						"description": .string("Target window id (from terminal_list_windows).")
 					])
 				]),
-				"required": .array([.string("command")])
+				"required": .array([.string("command"), .string("window_id")])
 			])
 		),
 		Tool(
 			name: "terminal_list_windows",
-			description: "List open Terminal.app windows with their ids and titles.",
+			description: """
+				List open Terminal.app windows with their ids, titles, and busy state \
+				(busy = a program is running, so terminal_run would refuse it).
+				""",
 			inputSchema: .object([
 				"type": .string("object"),
 				"properties": .object([:])
@@ -82,8 +92,8 @@ enum TerminalTools {
 			switch name {
 			case "terminal_open":
 				return try openTerminal(arguments: arguments)
-			case "terminal_run_in_front":
-				return try runInFrontTerminal(arguments: arguments)
+			case "terminal_run":
+				return try runInWindow(arguments: arguments)
 			case "terminal_list_windows":
 				return try listTerminalWindows()
 			default:
@@ -152,16 +162,44 @@ enum TerminalTools {
 		return .init(content: [.text(text: out, annotations: nil, _meta: nil)], isError: false)
 	}
 
-	private static func runInFrontTerminal(arguments: [String: Value]?) throws -> CallTool.Result {
-		guard let command = arguments?["command"]?.stringValue, !command.isEmpty else {
+	private static func runInWindow(arguments: [String: Value]?) throws -> CallTool.Result {
+		guard
+			let command = arguments?["command"]?.stringValue, !command.isEmpty,
+			let windowID = arguments?["window_id"]?.intValue
+		else {
 			return .init(
-				content: [.text(text: "Missing required argument: command", annotations: nil, _meta: nil)],
+				content: [
+					.text(
+						text: "Missing required arguments: command, window_id", annotations: nil, _meta: nil
+					)
+				],
 				isError: true
 			)
 		}
-		let script =
-			"tell application \"Terminal\" to do script \"\(appleScriptEscape(command))\" in front window"
+		// busy=true 代表該視窗有前景程式在跑（含控制中的 Claude session）；do script 會把
+		// 命令灌進那個程式而非乾淨 shell，故忙碌就拒跑、不注入。回傳 "BUSY" 當 sentinel。
+		let script = """
+			tell application "Terminal"
+			\tset theWindow to window id \(windowID)
+			\tif busy of theWindow then return "BUSY"
+			\tdo script "\(appleScriptEscape(command))" in theWindow
+			end tell
+			"""
 		let out = try runOsascript(script)
+		if out == "BUSY" {
+			return .init(
+				content: [
+					.text(
+						text: """
+							Window \(windowID) is busy (a program is running); refusing to inject. \
+							Pick an idle window via terminal_list_windows, or terminal_open a new one.
+							""",
+						annotations: nil, _meta: nil
+					)
+				],
+				isError: true
+			)
+		}
 		return .init(content: [.text(text: out, annotations: nil, _meta: nil)], isError: false)
 	}
 
@@ -170,7 +208,7 @@ enum TerminalTools {
 			tell application "Terminal"
 			\tset out to ""
 			\trepeat with w in windows
-			\t\tset out to out & "window " & (id of w) & ": " & (name of w) & linefeed
+			\t\tset out to out & "window " & (id of w) & " busy=" & (busy of w) & ": " & (name of w) & linefeed
 			\tend repeat
 			\treturn out
 			end tell
