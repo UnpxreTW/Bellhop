@@ -22,13 +22,15 @@ Bellhop 是用 Swift 寫的 [MCP](https://modelcontextprotocol.io)（Model Conte
 
 `terminal_run` 是「把命令打進該視窗當前在跑的程式」，所以只在視窗閒置於 shell 提示字元（`busy=false`）時乾淨執行——跑著程式的視窗（含其他編輯器 / session）會被自動拒跑、不被誤注入。先用 `terminal_list_windows` 挑 `busy=false` 的目標。
 
-## 安裝
+## 安裝與使用
+
+從原始碼建置（工具鏈需求見〈開發〉）：
 
 ```sh
 swift build -c release
 ```
 
-把 binary 註冊進 MCP client。以 Claude Code 為例，寫進 `~/.claude.json` 頂層 `mcpServers`（與其他 server 同層）：
+把產出的 binary 註冊進 MCP client。以 Claude Code 為例，寫進 `~/.claude.json` 頂層 `mcpServers`（與其他 server 同層）：
 
 ```json
 "bellhop": {
@@ -39,8 +41,10 @@ swift build -c release
 
 `claude mcp list` 應顯示 `bellhop ✔ Connected`。首次呼叫工具時，macOS 會要求授權 Terminal.app 的 Automation 權限。
 
-## 需求
+> 編譯產物部署目標為 macOS 14+；亦即 binary 可在 macOS 14 以上執行（注意「建置」的系統需求較高，見下）。
 
-- 執行：macOS 14+
-- 建置：Swift 6.2（Xcode 26+）
-- Terminal.app 已授 Automation 權限給 `osascript`
+## 開發
+
+- **工具鏈**：Swift 6.2 / Xcode 26。**Xcode 26 需 macOS 15.6+**——故建置在 macOS 15.6+ 環境，產物的部署目標則下探到 macOS 14。
+- **Lint / format**：[SwiftStyleKit](https://github.com/UnpxreTW/SwiftStyleKit)（SwiftLint + SwiftFormat 打包）；`SWIFTSTYLELINT_STRICT=1` 把 warning 升 error。
+- **測試 / CI**：`swift build` / `swift test`；GitHub Actions 跑 build 與 REUSE 授權合規檢查。
