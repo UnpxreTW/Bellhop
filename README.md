@@ -6,6 +6,12 @@ Bellhop 是用 Swift 寫的 [MCP](https://modelcontextprotocol.io)（Model Conte
 
 跟生態裡多數 macOS MCP server 不同，Bellhop **不是** computer-use（截圖 + 點擊），也不是「丟一段 AppleScript 我幫你跑」的通用 runner——它提供一組**目的明確、參數有型別**的工具。
 
+## 核心用途
+
+Bellhop 最初是為了一個情境而生：**人在手機上，透過 Claude app 的 dispatch 讓 Mac 開一個新的 Terminal session、跑起 `claude` 並預設啟用 Remote Control，然後直接在手機上接手那個 session。** dispatch 出來的 agent 只要呼叫 `terminal_open`，就能在 Mac 上開出帶 Remote Control 的 claude 視窗——這是 computer-use（截圖點擊）或沙盒內的 shell 做不到的（它們碰不到 host 的 Terminal）。
+
+它也能當一般的 Terminal 控制 MCP 給任何 MCP client 用。
+
 ## 為什麼
 
 - **具名工具，不是通用 runner**：每個工具都有 JSON Schema 定義的參數，client 一 handshake 就知道能做什麼、怎麼呼叫。
@@ -36,16 +42,25 @@ shasum -a 256 -c SHA256SUMS
 xattr -dr com.apple.quarantine /path/to/Bellhop
 ```
 
-註冊進 MCP client。以 Claude Code 為例，寫進 `~/.claude.json` 頂層 `mcpServers`（與其他 server 同層；`command` 給執行檔的絕對路徑）：
+把 Bellhop 註冊進 MCP client。依用途，可能要寫進一或兩個地方（格式相同，`command` 給執行檔的絕對路徑）：
+
+- **本機 Claude Code session** → `~/.claude.json` 頂層 `mcpServers`
+- **Claude app / 手機 dispatch（核心用途）** → `~/Library/Application Support/Claude/claude_desktop_config.json` 的 `mcpServers`
 
 ```json
-"bellhop": {
-  "type": "stdio",
-  "command": "/path/to/Bellhop"
+"mcpServers": {
+  "bellhop": { "command": "/path/to/Bellhop" }
 }
 ```
 
-`claude mcp list` 應顯示 `bellhop ✔ Connected`。首次呼叫工具時，macOS 會要求授權 Terminal.app 的 Automation 權限。
+Claude Code 用 `claude mcp list` 應顯示 `bellhop ✔ Connected`；改完 `claude_desktop_config.json` 要**重啟 Claude Desktop** 才生效。
+
+## 首次使用權限
+
+第一次呼叫工具時要過授權，之後不再問：
+
+- **Mac**：跳出「Terminal.app 想要被控制」的 Automation 授權 → 同意。
+- **手機端**：dispatch 的 session 第一次用這個工具會請你核准權限 → 同意。
 
 > 執行需求：macOS 14+。
 
