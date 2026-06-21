@@ -64,6 +64,22 @@ Claude Code 用 `claude mcp list` 應顯示 `bellhop ✔ Connected`；改完 `cl
 
 > 執行需求：macOS 14+。
 
+## 設定 Remote Control 預設開啟
+
+核心用途要手機接管 dispatch 開出的 session，得讓那個 `claude` 一**啟動就帶 Remote Control**。在 `~/.claude/settings.json` 設：
+
+```json
+{
+  "remoteControlAtStartup": true
+}
+```
+
+（或在 Claude Code 內 `/config` → 開「Enable Remote Control for all sessions」；也可改成每次啟動加 flag：`claude --remote-control`。）
+
+設好後，從手機 dispatch「用 `terminal_open` 開新視窗執行 `claude`」，新 session 就帶 Remote Control，在 Claude app 的 session 列表即可接管。
+
+**前提**：用 claude.ai 帳號 `/login`（Remote Control 不支援 API key）、方案 Pro / Max 以上、Claude Code 版本需支援 `remoteControlAtStartup`。
+
 ## 開發
 
 從原始碼建置：
