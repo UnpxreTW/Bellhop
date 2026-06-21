@@ -80,6 +80,17 @@ Claude Code 用 `claude mcp list` 應顯示 `bellhop ✔ Connected`；改完 `cl
 
 **前提**：用 claude.ai 帳號 `/login`（Remote Control 不支援 API key）、方案 Pro / Max 以上、Claude Code 版本需支援 `remoteControlAtStartup`。
 
+## 觸發方式與限制
+
+兩條觸發路徑：
+
+- **本機執行中的 session 直接觸發**：Mac 上任何執行中的 Claude Code session（已在 `~/.claude.json` 註冊）可直接呼叫工具——即時、無額外開銷，也能對既有視窗操作（`terminal_list_windows` 看狀態、`terminal_run` 指定 `window_id`）。想避開 dispatch 的負擔就走這條。
+- **手機 dispatch**：人不在電腦前時從手機開 session。
+
+> ⚠️ **手機 dispatch 在沙盒環境執行**，比本機 session 直接觸發多一層資源開銷。不想要這層開銷時，改從本機執行中的 session 觸發。
+
+> ⚠️ **dispatch 需要 Claude app 正在執行、且 Mac 處於喚醒狀態**。剛開機而 app 還沒啟動時 dispatch 不會執行——即使能 SSH 連進去也一樣（dispatch 機制仍需 app 在跑，不是有 shell 就行）。
+
 ## 開發
 
 從原始碼建置：
