@@ -6,6 +6,12 @@ Bellhop 是用 Swift 寫的 [MCP](https://modelcontextprotocol.io)（Model Conte
 
 跟生態裡多數 macOS MCP server 不同，Bellhop **不是** computer-use（截圖 + 點擊），也不是「丟一段 AppleScript 我幫你跑」的通用 runner——它提供一組**目的明確、參數有型別**的工具。
 
+## 核心用途
+
+Bellhop 最初是為了一個情境而生：**人在手機上，透過 Claude app 的 dispatch 讓 Mac 開一個新的 Terminal session、跑起 `claude` 並預設啟用 Remote Control，然後直接在手機上接手那個 session。** dispatch 出來的 agent 只要呼叫 `terminal_open`，就能在 Mac 上開出帶 Remote Control 的 claude 視窗——這是 computer-use（截圖點擊）或沙盒內的 shell 做不到的（它們碰不到 host 的 Terminal）。
+
+它也能當一般的 Terminal 控制 MCP 給任何 MCP client 用。
+
 ## 為什麼
 
 - **具名工具，不是通用 runner**：每個工具都有 JSON Schema 定義的參數，client 一 handshake 就知道能做什麼、怎麼呼叫。
@@ -36,18 +42,54 @@ shasum -a 256 -c SHA256SUMS
 xattr -dr com.apple.quarantine /path/to/Bellhop
 ```
 
-註冊進 MCP client。以 Claude Code 為例，寫進 `~/.claude.json` 頂層 `mcpServers`（與其他 server 同層；`command` 給執行檔的絕對路徑）：
+把 Bellhop 註冊進 MCP client。依用途，可能要寫進一或兩個地方（格式相同，`command` 給執行檔的絕對路徑）：
+
+- **本機 Claude Code session** → `~/.claude.json` 頂層 `mcpServers`
+- **Claude app / 手機 dispatch（核心用途）** → `~/Library/Application Support/Claude/claude_desktop_config.json` 的 `mcpServers`
 
 ```json
-"bellhop": {
-  "type": "stdio",
-  "command": "/path/to/Bellhop"
+"mcpServers": {
+  "bellhop": { "command": "/path/to/Bellhop" }
 }
 ```
 
-`claude mcp list` 應顯示 `bellhop ✔ Connected`。首次呼叫工具時，macOS 會要求授權 Terminal.app 的 Automation 權限。
+Claude Code 用 `claude mcp list` 應顯示 `bellhop ✔ Connected`；改完 `claude_desktop_config.json` 要**重啟 Claude Desktop** 才生效。
+
+## 首次使用權限
+
+第一次呼叫工具時要過授權，之後不再問：
+
+- **Mac**：跳出「Terminal.app 想要被控制」的 Automation 授權 → 同意。
+- **手機端**：dispatch 的 session 第一次用這個工具會請你核准權限 → 同意。
 
 > 執行需求：macOS 14+。
+
+## 設定 Remote Control 預設開啟
+
+核心用途要手機接管 dispatch 開出的 session，得讓那個 `claude` 一**啟動就帶 Remote Control**。在 `~/.claude/settings.json` 設：
+
+```json
+{
+  "remoteControlAtStartup": true
+}
+```
+
+（或在 Claude Code 內 `/config` → 開「Enable Remote Control for all sessions」；也可改成每次啟動加 flag：`claude --remote-control`。）
+
+設好後，從手機 dispatch「用 `terminal_open` 開新視窗執行 `claude`」，新 session 就帶 Remote Control，在 Claude app 的 session 列表即可接管。
+
+**前提**：用 claude.ai 帳號 `/login`（Remote Control 不支援 API key）、方案 Pro / Max 以上、Claude Code 版本需支援 `remoteControlAtStartup`。
+
+## 觸發方式與限制
+
+兩條觸發路徑：
+
+- **本機執行中的 session 直接觸發**：Mac 上任何執行中的 Claude Code session（已在 `~/.claude.json` 註冊）可直接呼叫工具——即時、無額外開銷，也能對既有視窗操作（`terminal_list_windows` 看狀態、`terminal_run` 指定 `window_id`）。想避開 dispatch 的負擔就走這條。
+- **手機 dispatch**：人不在電腦前時從手機開 session。
+
+> ⚠️ **手機 dispatch 在沙盒環境執行**，比本機 session 直接觸發多一層資源開銷。不想要這層開銷時，改從本機執行中的 session 觸發。
+
+> ⚠️ **dispatch 需要 Claude app 正在執行、且 Mac 處於喚醒狀態**。剛開機而 app 還沒啟動時 dispatch 不會執行——即使能 SSH 連進去也一樣（dispatch 機制仍需 app 在跑，不是有 shell 就行）。
 
 ## 開發
 
