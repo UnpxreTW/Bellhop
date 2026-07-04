@@ -25,8 +25,11 @@ Bellhop 最初是為了一個情境而生：**人在手機上，透過 Claude ap
 | `terminal_open` | 開新 Terminal 視窗，可選 cd 進目錄再跑命令，回傳新分頁識別碼 | `command`、`cwd`（皆可選；空＝乾淨 shell） |
 | `terminal_run` | 在指定 `window_id` 的視窗跑命令；視窗忙碌（有前景程式在跑）就拒跑、不注入 | `command`、`window_id`（皆必填） |
 | `terminal_list_windows` | 列出開啟中的視窗 id、標題與 `busy` 狀態 | 無 |
+| `screen_capture` | 截圖存檔、回傳路徑（不 inline 圖）；預設主螢幕，可選指定 Terminal 視窗 / 區域 / 螢幕 | `window_id`、`region`(`"x,y,w,h"`)、`display`、`path`、`format`(`png`/`jpg`)，皆可選 |
 
 `terminal_run` 是「把命令打進該視窗當前在跑的程式」，所以只在視窗閒置於 shell 提示字元（`busy=false`）時乾淨執行——跑著程式的視窗（含其他編輯器 / session）會被自動拒跑、不被誤注入。先用 `terminal_list_windows` 挑 `busy=false` 的目標。
+
+`screen_capture` 跟 terminal 工具不同性質：它走 `screencapture`、**需 macOS Screen Recording 權限、且螢幕鎖定下截不到**（不是 lock-safe）。截圖存成檔案、只回路徑（避開 base64 體積），預設存 `~/Downloads/`。指定 `window_id`（取自 `terminal_list_windows`）會只截那個 Terminal 視窗。
 
 ## 安裝與使用
 
@@ -59,7 +62,8 @@ Claude Code 用 `claude mcp list` 應顯示 `bellhop ✔ Connected`；改完 `cl
 
 第一次呼叫工具時要過授權，之後不再問：
 
-- **Mac**：跳出「Terminal.app 想要被控制」的 Automation 授權 → 同意。
+- **Mac（terminal 工具）**：跳出「Terminal.app 想要被控制」的 Automation 授權 → 同意。
+- **Mac（`screen_capture`）**：另需 **Screen Recording** 權限——到 System Settings → Privacy & Security → Screen Recording 把「執行 Bellhop 的 app」（如 Claude / 終端機）打開，**重啟該 app** 才生效。未授權時截圖會回 `could not create image from display`。
 - **手機端**：dispatch 的 session 第一次用這個工具會請你核准權限 → 同意。
 
 > 執行需求：macOS 14+。
