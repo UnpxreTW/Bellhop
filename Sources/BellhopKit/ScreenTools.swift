@@ -6,6 +6,7 @@
 //
 //  SPDX-License-Identifier: Apache-2.0
 
+import AppKit
 import CoreGraphics
 import Foundation
 import MCP
@@ -69,10 +70,10 @@ enum ScreenTools {
 	}
 
 	/// 將 tool 呼叫分派到對應實作。
-	static func handle(name: String, arguments: [String: Value]?) -> CallTool.Result {
+	static func handle(name: String, arguments: [String: Value]?) async -> CallTool.Result {
 		switch name {
 		case "screen_capture":
-			screenCapture(arguments: arguments)
+			await screenCapture(arguments: arguments)
 		default:
 			.init(
 				content: [.text(text: "Unknown tool: \(name)", annotations: nil, _meta: nil)],
@@ -83,28 +84,27 @@ enum ScreenTools {
 
 	// MARK: Private
 
-	/// Terminal 視窗的螢幕座標 bounds。
-	private struct WindowBounds {
-		var width: Int { right - left }
-		var height: Int { bottom - top }
+	/// CG 視窗清單裡的一筆 Terminal 視窗。
+	private struct CGWindowEntry {
 
-		let left: Int
-		let top: Int
-		let right: Int
-		let bottom: Int
+		let number: CGWindowID
+		let originX: Int
+		let originY: Int
+		let width: Int
+		let height: Int
 	}
 
-	private static func screenCapture(arguments: [String: Value]?) -> CallTool.Result {
+	private static func screenCapture(arguments: [String: Value]?) async -> CallTool.Result {
 		let format = arguments?["format"]?.stringValue == "jpg" ? "jpg" : "png"
 		let path = arguments?["path"]?.stringValue ?? defaultPath(format: format)
 		var args = ["-x", "-t", format]
 		var target = "main display"
 
 		if let windowID = arguments?["window_id"]?.intValue {
-			if let cgID = cgWindowID(forTerminalWindowID: windowID) {
+			if let cgID = await cgWindowID(forTerminalWindowID: windowID) {
 				args += ["-o", "-l", String(cgID)]
 				target = "Terminal window \(windowID)"
-			} else if let region = terminalWindowRegion(windowID: windowID) {
+			} else if let region = await terminalWindowRegion(windowID: windowID) {
 				args += ["-R", region]
 				target = "Terminal window \(windowID) (region fallback)"
 			} else {
@@ -120,14 +120,15 @@ enum ScreenTools {
 			args.append("-m")
 		}
 		args.append(path)
-		return runCapture(args: args, target: target, path: path)
+		return await runCapture(args: args, target: target, path: path)
 	}
 
 	/// 跑 screencapture、驗證產物、回傳結果。
-	private static func runCapture(args: [String], target: String, path: String) -> CallTool.Result {
+	private static func runCapture(args: [String], target: String, path: String) async -> CallTool.Result {
 		do {
-			let (status, stderr) = try runProcess("/usr/sbin/screencapture", args)
-			if status != 0 {
+			let output = try await Subprocess.run("/usr/sbin/screencapture", arguments: args)
+			let stderr = output.standardError.trimmingCharacters(in: .whitespacesAndNewlines)
+			if output.status != 0 {
 				let hint = stderr.contains("could not create image")
 					? """
 						 — likely missing Screen Recording permission. Grant it to the app \
@@ -157,41 +158,62 @@ enum ScreenTools {
 
 	/// 把 Bellhop 的 Terminal AppleScript window id 映射到系統 CGWindowID（給 `screencapture -l`）。
 	///
-	/// 兩者不同源——以 owner 為 Terminal、且 bounds 相符的視窗比對出 CGWindowID。
-	private static func cgWindowID(forTerminalWindowID windowID: Int) -> CGWindowID? {
-		guard let target = terminalWindowBounds(windowID: windowID) else { return nil }
-		let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-		guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return nil }
-		for window in list {
-			guard window[kCGWindowOwnerName as String] as? String == "Terminal" else { continue }
-			guard let box = window[kCGWindowBounds as String] as? [String: Any] else { continue }
-			let boxX = (box["X"] as? NSNumber)?.intValue ?? .min
-			let boxY = (box["Y"] as? NSNumber)?.intValue ?? .min
-			let boxW = (box["Width"] as? NSNumber)?.intValue ?? .min
-			let boxH = (box["Height"] as? NSNumber)?.intValue ?? .min
-			let matched =
-				abs(boxX - target.left) <= 2 && abs(boxY - target.top) <= 2
-					&& abs(boxW - target.width) <= 2 && abs(boxH - target.height) <= 2
-			if matched {
-				return (window[kCGWindowNumber as String] as? NSNumber)?.uint32Value
-			}
+	/// 實測（macOS 27）Terminal 的 AppleScript window id 與 `kCGWindowNumber` 同號
+	/// （含最小化視窗），所以先直接驗證同號視窗存在；不成立時退回 bounds 比對
+	/// （兩套座標實測同源對齊，見 ``WindowBounds``）。
+	private static func cgWindowID(forTerminalWindowID windowID: Int) async -> CGWindowID? {
+		let windows = terminalCGWindows()
+		if windowID > 0, windows.contains(where: { $0.number == CGWindowID(windowID) }) {
+			return CGWindowID(windowID)
 		}
-		return nil
+		guard let target = await terminalWindowBounds(windowID: windowID) else { return nil }
+		return windows.first {
+			target.matches(originX: $0.originX, originY: $0.originY, width: $0.width, height: $0.height)
+		}?.number
+	}
+
+	/// 列出 Terminal 擁有的一般層級 CG 視窗（含最小化與其他 Space 的）。
+	///
+	/// 以 owner PID 過濾——`kCGWindowOwnerName` 是**本地化**的 app 顯示名
+	/// （如中文系統上是「終端機」），不能拿 "Terminal" 字面比對。
+	private static func terminalCGWindows() -> [CGWindowEntry] {
+		let pids = Set(
+			NSRunningApplication
+				.runningApplications(withBundleIdentifier: "com.apple.Terminal")
+				.map { Int($0.processIdentifier) }
+		)
+		guard
+			!pids.isEmpty,
+			let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]
+		else { return [] }
+		return list.compactMap { window in
+			guard
+				let pid = (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue,
+				pids.contains(pid),
+				(window[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+				let number = (window[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+				let box = window[kCGWindowBounds as String] as? [String: Any],
+				let originX = (box["X"] as? NSNumber)?.intValue,
+				let originY = (box["Y"] as? NSNumber)?.intValue,
+				let width = (box["Width"] as? NSNumber)?.intValue,
+				let height = (box["Height"] as? NSNumber)?.intValue
+			else { return nil }
+			return CGWindowEntry(
+				number: CGWindowID(number), originX: originX, originY: originY, width: width, height: height
+			)
+		}
 	}
 
 	/// 取 Terminal 視窗的 bounds。
-	private static func terminalWindowBounds(windowID: Int) -> WindowBounds? {
+	private static func terminalWindowBounds(windowID: Int) async -> WindowBounds? {
 		let script = "tell application \"Terminal\" to get bounds of window id \(windowID)"
-		guard let out = try? TerminalTools.runOsascript(script) else { return nil }
-		let parts = out.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-		guard parts.count == 4 else { return nil }
-		return WindowBounds(left: parts[0], top: parts[1], right: parts[2], bottom: parts[3])
+		guard let out = try? await TerminalTools.runOsascript(script) else { return nil }
+		return WindowBounds(appleScriptBounds: out)
 	}
 
 	/// 把 Terminal 視窗 bounds 轉成 screencapture `-R` 的 "x,y,width,height"。
-	private static func terminalWindowRegion(windowID: Int) -> String? {
-		guard let bounds = terminalWindowBounds(windowID: windowID) else { return nil }
-		return "\(bounds.left),\(bounds.top),\(bounds.width),\(bounds.height)"
+	private static func terminalWindowRegion(windowID: Int) async -> String? {
+		await terminalWindowBounds(windowID: windowID)?.region
 	}
 
 	/// 預設輸出路徑 ~/Downloads/Bellhop-Screenshot-<timestamp>.<ext>。
@@ -208,22 +230,5 @@ enum ScreenTools {
 
 	private static func errorResult(_ message: String) -> CallTool.Result {
 		.init(content: [.text(text: message, annotations: nil, _meta: nil)], isError: true)
-	}
-
-	/// 執行 subprocess，回傳 (exit status, 去頭尾空白的 stderr)。
-	private static func runProcess(_ launchPath: String, _ args: [String]) throws -> (Int32, String) {
-		let process: Process = .init()
-		process.executableURL = URL(fileURLWithPath: launchPath)
-		process.arguments = args
-		let stderr: Pipe = .init()
-		process.standardError = stderr
-		process.standardOutput = Pipe()
-		try process.run()
-		let errData = stderr.fileHandleForReading.readDataToEndOfFile()
-		process.waitUntilExit()
-		let message =
-			String(data: errData, encoding: .utf8)?
-				.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-		return (process.terminationStatus, message)
 	}
 }

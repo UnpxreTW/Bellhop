@@ -36,9 +36,9 @@ public enum BellhopServer {
 		}
 		await server.withMethodHandler(CallTool.self) { params in
 			if ScreenTools.owns(params.name) {
-				return ScreenTools.handle(name: params.name, arguments: params.arguments)
+				return await ScreenTools.handle(name: params.name, arguments: params.arguments)
 			}
-			return TerminalTools.handle(name: params.name, arguments: params.arguments)
+			return await TerminalTools.handle(name: params.name, arguments: params.arguments)
 		}
 		return server
 	}
