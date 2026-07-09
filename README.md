@@ -77,7 +77,7 @@ Claude Code 用 `claude mcp list` 應顯示 `bellhop ✔ Connected`；改完 `cl
 
 設好後，從手機 dispatch「用 `terminal_open` 開新視窗執行 `claude --remote-control`」，新 session 就出現在 Claude app 的 session 列表、可直接接管。
 
-**前提**：用 claude.ai 帳號 `/login`（Remote Control 不支援 API key）、方案 Pro / Max 以上、Claude Code v2.1.51+（`--remote-control`）／v2.1.119+（`remoteControlAtStartup`）。
+**前提**：用 claude.ai 帳號 `/login`（Remote Control 不支援 API key）、方案 Pro / Max 以上、Claude Code v2.1.51+。
 
 ## 觸發方式與限制
 
