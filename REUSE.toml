@@ -13,7 +13,6 @@ path = [
 	"README.md",
 	"SECURITY.md",
 	"docs/CODEOWNERS",
-	"docs/SECURITY.md",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Unpxre (GitHub: UnpxreTW)"
