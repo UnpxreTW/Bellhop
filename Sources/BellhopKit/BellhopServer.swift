@@ -15,8 +15,8 @@ public enum BellhopServer {
 	/// MCP handshake 時回報給 client 的 server 名稱。
 	public static let name = "bellhop"
 
-	/// Server 版本號，隨發佈遞增。
-	public static let version = "0.1.0"
+	/// Server 版本號；build 時由 `BellhopVersionPlugin` 從 git tag 注入（單一來源）。
+	public static let version: String = BellhopVersion.current
 
 	/// 組裝設定完成的 server 並註冊 method handler。
 	///
@@ -36,9 +36,9 @@ public enum BellhopServer {
 		}
 		await server.withMethodHandler(CallTool.self) { params in
 			if ScreenTools.owns(params.name) {
-				return ScreenTools.handle(name: params.name, arguments: params.arguments)
+				return await ScreenTools.handle(name: params.name, arguments: params.arguments)
 			}
-			return TerminalTools.handle(name: params.name, arguments: params.arguments)
+			return await TerminalTools.handle(name: params.name, arguments: params.arguments)
 		}
 		return server
 	}

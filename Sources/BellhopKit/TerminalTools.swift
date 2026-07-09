@@ -87,15 +87,15 @@ enum TerminalTools {
 	/// 將 tool 呼叫分派到對應實作。
 	///
 	/// 工具層失敗依 MCP 慣例以 `isError: true` 回傳、不丟例外。
-	static func handle(name: String, arguments: [String: Value]?) -> CallTool.Result {
+	static func handle(name: String, arguments: [String: Value]?) async -> CallTool.Result {
 		do {
 			switch name {
 			case "terminal_open":
-				return try openTerminal(arguments: arguments)
+				return try await openTerminal(arguments: arguments)
 			case "terminal_run":
-				return try runInWindow(arguments: arguments)
+				return try await runInWindow(arguments: arguments)
 			case "terminal_list_windows":
-				return try listTerminalWindows()
+				return try await listTerminalWindows()
 			default:
 				return .init(
 					content: [.text(text: "Unknown tool: \(name)", annotations: nil, _meta: nil)],
@@ -111,29 +111,21 @@ enum TerminalTools {
 	}
 
 	/// 以 `osascript` 執行 AppleScript，回傳去除頭尾空白的 stdout。
-	static func runOsascript(_ script: String) throws -> String {
-		let process: Process = .init()
-		process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-		process.arguments = ["-e", script]
-
-		let stdout: Pipe = .init()
-		let stderr: Pipe = .init()
-		process.standardOutput = stdout
-		process.standardError = stderr
-
-		try process.run()
-		let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-		let errData = stderr.fileHandleForReading.readDataToEndOfFile()
-		process.waitUntilExit()
-
-		if process.terminationStatus != 0 {
-			let message =
-				String(data: errData, encoding: .utf8)?
-					.trimmingCharacters(in: .whitespacesAndNewlines) ?? "osascript failed"
-			throw TerminalError.osascriptFailed(message)
+	static func runOsascript(_ script: String) async throws -> String {
+		let output = try await Subprocess.run("/usr/bin/osascript", arguments: ["-e", script])
+		if output.status != 0 {
+			let message = output.standardError.trimmingCharacters(in: .whitespacesAndNewlines)
+			throw TerminalError.osascriptFailed(message.isEmpty ? "osascript failed" : message)
 		}
-		return String(data: outData, encoding: .utf8)?
-			.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+		return output.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+	}
+
+	/// 組出 `terminal_open` 要跑的 shell payload：先 cd（有給 cwd 時）再接命令；兩者皆空回空字串（開乾淨 shell）。
+	static func openPayload(command: String, cwd: String) -> String {
+		var parts: [String] = []
+		if !cwd.isEmpty { parts.append("cd \(shellQuote(cwd))") }
+		if !command.isEmpty { parts.append(command) }
+		return parts.joined(separator: " && ")
 	}
 
 	/// 把字串 escape 成可嵌入 AppleScript `"..."` 字面值的形式。
@@ -149,20 +141,18 @@ enum TerminalTools {
 
 	// MARK: Private
 
-	private static func openTerminal(arguments: [String: Value]?) throws -> CallTool.Result {
-		let command = arguments?["command"]?.stringValue ?? ""
-		let cwd = arguments?["cwd"]?.stringValue ?? ""
-		var parts: [String] = []
-		if !cwd.isEmpty { parts.append("cd \(shellQuote(cwd))") }
-		if !command.isEmpty { parts.append(command) }
-		let payload = parts.joined(separator: " && ")
+	private static func openTerminal(arguments: [String: Value]?) async throws -> CallTool.Result {
+		let payload = openPayload(
+			command: arguments?["command"]?.stringValue ?? "",
+			cwd: arguments?["cwd"]?.stringValue ?? ""
+		)
 		let script =
 			"tell application \"Terminal\" to do script \"\(appleScriptEscape(payload))\""
-		let out = try runOsascript(script)
+		let out = try await runOsascript(script)
 		return .init(content: [.text(text: out, annotations: nil, _meta: nil)], isError: false)
 	}
 
-	private static func runInWindow(arguments: [String: Value]?) throws -> CallTool.Result {
+	private static func runInWindow(arguments: [String: Value]?) async throws -> CallTool.Result {
 		guard
 			let command = arguments?["command"]?.stringValue, !command.isEmpty,
 			let windowID = arguments?["window_id"]?.intValue
@@ -185,7 +175,7 @@ enum TerminalTools {
 			\tdo script "\(appleScriptEscape(command))" in theWindow
 			end tell
 			"""
-		let out = try runOsascript(script)
+		let out = try await runOsascript(script)
 		if out == "BUSY" {
 			return .init(
 				content: [
@@ -203,7 +193,7 @@ enum TerminalTools {
 		return .init(content: [.text(text: out, annotations: nil, _meta: nil)], isError: false)
 	}
 
-	private static func listTerminalWindows() throws -> CallTool.Result {
+	private static func listTerminalWindows() async throws -> CallTool.Result {
 		let script = """
 			tell application "Terminal"
 			\tset out to ""
@@ -213,7 +203,7 @@ enum TerminalTools {
 			\treturn out
 			end tell
 			"""
-		let out = try runOsascript(script)
+		let out = try await runOsascript(script)
 		return .init(
 			content: [
 				.text(

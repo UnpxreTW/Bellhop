@@ -21,7 +21,19 @@ let package = Package(
 			dependencies: [
 				.product(name: "MCP", package: "swift-sdk"),
 			],
+			plugins: [
+				.plugin(name: "SwiftStyleLint", package: "SwiftStyleKit"),
+				.plugin(name: "BellhopVersionPlugin"),
+			]
+		),
+		.testTarget(
+			name: "BellhopKitTests",
+			dependencies: ["BellhopKit"],
 			plugins: [.plugin(name: "SwiftStyleLint", package: "SwiftStyleKit")]
+		),
+		.plugin(
+			name: "BellhopVersionPlugin",
+			capability: .buildTool()
 		),
 	]
 )

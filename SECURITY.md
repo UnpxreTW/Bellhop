@@ -6,7 +6,11 @@
 
 ## Security model
 
-Bellhop 以**啟動它的使用者權限**運行。它透過 `osascript` 對 Terminal.app 發 Apple Event，並提供可執行任意 shell 命令的工具（`open_terminal`、`run_in_front_terminal`）。這在設計上等同**任意程式執行**——這正是「終端機控制」功能本身，不是缺陷。
+Bellhop 以**啟動它的使用者權限**運行，透過 `osascript` 對 Terminal.app 發 Apple Event、透過 `screencapture` 讀取螢幕。目前的工具面：
+
+- `terminal_open`、`terminal_run`——可執行任意 shell 命令。這在設計上等同**任意程式執行**——這正是「終端機控制」功能本身，不是缺陷。
+- `terminal_list_windows`——唯讀列舉視窗 id、標題與忙碌狀態。
+- `screen_capture`——把螢幕內容截圖存檔（需 macOS Screen Recording 權限）；對畫面上的機敏資訊是一條讀取路徑。
 
 因此使用上請注意：
 

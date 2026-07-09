@@ -68,21 +68,16 @@ Claude Code 用 `claude mcp list` 應顯示 `bellhop ✔ Connected`；改完 `cl
 
 > 執行需求：macOS 14+。
 
-## 設定 Remote Control 預設開啟
+## 讓開出的 session 帶 Remote Control
 
-核心用途要手機接管 dispatch 開出的 session，得讓那個 `claude` 一**啟動就帶 Remote Control**。在 `~/.claude/settings.json` 設：
+核心用途要手機接管 dispatch 開出的 session，得讓那個 `claude` 一**啟動就帶 Remote Control**。兩種做法：
 
-```json
-{
-  "remoteControlAtStartup": true
-}
-```
+- **每次啟動帶 flag（建議）**：開 session 的命令用 `claude --remote-control`——只影響這個 session、不動全域設定。dispatch 時讓 agent 呼叫 `terminal_open` 執行它即可。
+- **全域預設開啟**：在 `~/.claude/settings.json` 設 `{ "remoteControlAtStartup": true }`（或 Claude Code 內 `/config` → 開「Enable Remote Control for all sessions」）——代價是本機手動開的每個 `claude` 也都會帶 Remote Control。
 
-（或在 Claude Code 內 `/config` → 開「Enable Remote Control for all sessions」；也可改成每次啟動加 flag：`claude --remote-control`。）
+設好後，從手機 dispatch「用 `terminal_open` 開新視窗執行 `claude --remote-control`」，新 session 就出現在 Claude app 的 session 列表、可直接接管。
 
-設好後，從手機 dispatch「用 `terminal_open` 開新視窗執行 `claude`」，新 session 就帶 Remote Control，在 Claude app 的 session 列表即可接管。
-
-**前提**：用 claude.ai 帳號 `/login`（Remote Control 不支援 API key）、方案 Pro / Max 以上、Claude Code 版本需支援 `remoteControlAtStartup`。
+**前提**：用 claude.ai 帳號 `/login`（Remote Control 不支援 API key）、方案 Pro / Max 以上、Claude Code v2.1.51+。
 
 ## 觸發方式與限制
 
@@ -106,4 +101,5 @@ swift build -c release
 
 - **工具鏈**：Swift 6.2 / Xcode 26。**Xcode 26 需 macOS 15.6+**——故建置在 macOS 15.6+ 環境，產物部署目標則下探到 macOS 14。
 - **Lint / format**：[SwiftStyleKit](https://github.com/UnpxreTW/SwiftStyleKit)（SwiftLint + SwiftFormat 打包）；`SWIFTSTYLELINT_STRICT=1` 把 warning 升 error。
-- **測試 / CI**：`swift build` / `swift test`；GitHub Actions 跑 build 與 REUSE 授權合規檢查。
+- **測試 / CI**：`swift test`（單元測試在 `Tests/BellhopKitTests`）；GitHub Actions 跑 build、測試與 REUSE 授權合規檢查。
+- **版本號**：build 時由 `BellhopVersionPlugin` 以 `git describe` 從 git tag 注入（單一來源＝tag）；無 tag 退回 commit hash、無 git 環境退回 `0.0.0-unknown`。
