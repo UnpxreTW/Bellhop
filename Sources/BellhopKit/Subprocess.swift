@@ -12,7 +12,7 @@ import Foundation
 
 /// 共用的 subprocess 執行器。
 ///
-/// 三個健壯性保證:stdout / stderr **並行 drain**(單邊塞爆 64KB pipe buffer 不會
+/// 三個健壯性保證：stdout / stderr **並行 drain**(單邊塞爆 64KB pipe buffer 不會
 /// deadlock)、**逾時終止**(子程序卡住——例如系統權限對話框擋在前面——不會無限阻塞
 /// 整個 server)、以及**不佔用 Swift concurrency 合作執行緒**(阻塞等待落在 GCD 執行緒)。
 enum Subprocess {
