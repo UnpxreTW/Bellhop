@@ -12,9 +12,9 @@ import Foundation
 
 /// 共用的 subprocess 執行器。
 ///
-/// 三個健壯性保證：stdout / stderr **並行 drain**(單邊塞爆 64KB pipe buffer 不會
-/// deadlock)、**逾時終止**(子程序卡住——例如系統權限對話框擋在前面——不會無限阻塞
-/// 整個 server)、以及**不佔用 Swift concurrency 合作執行緒**(阻塞等待落在 GCD 執行緒)。
+/// 三個健壯性保證：stdout / stderr **並行 drain**（單邊塞爆 64KB pipe buffer 不會
+/// deadlock）、**逾時終止**（子程序卡住——例如系統權限對話框擋在前面——不會無限阻塞
+/// 整個 server）、以及**不佔用 Swift concurrency 合作執行緒**（阻塞等待落在 GCD 執行緒）。
 enum Subprocess {
 
 	// MARK: Internal
@@ -25,7 +25,7 @@ enum Subprocess {
 		let status: Int32
 		let standardOutput: String
 		let standardError: String
-		/// drain 因逾時提前收尾時為 true——此時 `standardOutput` / `standardError` 可能不完整,
+		/// drain 因逾時提前收尾時為 true——此時 `standardOutput` / `standardError` 可能不完整，
 		/// 即使 `status` 本身是父程序真實成功碼。
 		let truncated: Bool
 	}
@@ -35,12 +35,12 @@ enum Subprocess {
 
 	/// 執行子程序並收齊輸出。
 	///
-	/// 呼叫端 Task 被 cancel 時會對子程序送 `terminate()`,不會放著跑到自然結束或逾時。
+	/// 呼叫端 Task 被 cancel 時會對子程序送 `terminate()`，不會放著跑到自然結束或逾時。
 	///
 	/// - Parameters:
 	///   - executablePath: 執行檔絕對路徑。
 	///   - arguments: 傳給執行檔的參數。
-	///   - timeout: 逾時秒數,超過即送 SIGTERM(寬限後 SIGKILL)並丟 ``SubprocessError/timedOut(_:after:)``。
+	///   - timeout: 逾時秒數，超過即送 SIGTERM（寬限後 SIGKILL）並丟 ``SubprocessError/timedOut(_:after:)``。
 	static func run(
 		_ executablePath: String,
 		arguments: [String],
@@ -81,20 +81,20 @@ enum Subprocess {
 		}
 	}
 
-	/// 跨執行緒交握子程序控制權的容器,讓 Task cancellation 能 terminate() 一個可能還沒
+	/// 跨執行緒交握子程序控制權的容器，讓 Task cancellation 能 terminate() 一個可能還沒
 	/// spawn 完成的子程序。
 	///
-	/// `onCancel` 可能在任意執行緒、任意時間點(含 `runSync` 尚未跑到 `process.run()` 前)
-	/// 同步觸發;用鎖 + 旗標讓「先 cancel 後 process 就緒」與「先 process 就緒後 cancel」
+	/// `onCancel` 可能在任意執行緒、任意時間點（含 `runSync` 尚未跑到 `process.run()` 前）
+	/// 同步觸發；用鎖 + 旗標讓「先 cancel 後 process 就緒」與「先 process 就緒後 cancel」
 	/// 兩種到達順序都導向同一個 `terminate()` 呼叫——`Process.terminate()` 本身可重複呼叫、
-	/// 可在任意執行緒呼叫,是安全的。
+	/// 可在任意執行緒呼叫，是安全的。
 	private final class ProcessBox: @unchecked Sendable {
 
 		private let lock: NSLock = .init()
 		private var process: Process?
 		private var cancelled = false
 
-		/// `runSync` 成功 `process.run()` 後登記,讓已發生的 cancel 有東西可 terminate()。
+		/// `runSync` 成功 `process.run()` 後登記，讓已發生的 cancel 有東西可 terminate()。
 		func register(_ process: Process) {
 			lock.lock()
 			self.process = process
@@ -105,7 +105,7 @@ enum Subprocess {
 			}
 		}
 
-		/// Task cancellation 觸發;process 已就緒就直接 terminate(),否則記旗標待 register() 補送。
+		/// Task cancellation 觸發；process 已就緒就直接 terminate()，否則記旗標待 register() 補送。
 		func cancel() {
 			lock.lock()
 			cancelled = true
@@ -115,10 +115,10 @@ enum Subprocess {
 		}
 	}
 
-	/// SIGTERM 後等待子程序退出的寬限秒數,逾期升級 SIGKILL。
+	/// SIGTERM 後等待子程序退出的寬限秒數，逾期升級 SIGKILL。
 	private static let killGracePeriod: TimeInterval = 2
 
-	/// 在呼叫端執行緒(GCD)上同步執行子程序;兩條 pipe 各以 readabilityHandler 並行 drain。
+	/// 在呼叫端執行緒（GCD）上同步執行子程序；兩條 pipe 各以 readabilityHandler 並行 drain。
 	private static func runSync(
 		_ executablePath: String,
 		arguments: [String],
@@ -175,7 +175,7 @@ enum Subprocess {
 		)
 	}
 
-	/// 持續讀空 pipe 直到 EOF;回傳累積輸出的 buffer。
+	/// 持續讀空 pipe 直到 EOF；回傳累積輸出的 buffer。
 	private static func drain(_ pipe: Pipe, group: DispatchGroup) -> DataBuffer {
 		let buffer: DataBuffer = .init()
 		group.enter()
