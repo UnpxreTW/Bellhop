@@ -5,7 +5,6 @@ version = 1
 [[annotations]]
 path = [
 	".github/dependabot.yml",
-	".github/workflows/ci.yml",
 	".gitignore",
 	"NOTICE",
 	"Package.resolved",
