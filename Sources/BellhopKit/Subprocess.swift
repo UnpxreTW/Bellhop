@@ -92,13 +92,13 @@ enum Subprocess {
 
 		private let lock: NSLock = .init()
 		private var process: Process?
-		private var cancelled = false
+		private var cancelled: Bool = false
 
 		/// `runSync` 成功 `process.run()` 後登記，讓已發生的 cancel 有東西可 terminate()。
 		func register(_ process: Process) {
 			lock.lock()
 			self.process = process
-			let shouldTerminate = cancelled
+			let shouldTerminate: Bool = cancelled
 			lock.unlock()
 			if shouldTerminate {
 				process.terminate()
@@ -109,7 +109,7 @@ enum Subprocess {
 		func cancel() {
 			lock.lock()
 			cancelled = true
-			let existing = process
+			let existing: Process? = process
 			lock.unlock()
 			existing?.terminate()
 		}
@@ -146,7 +146,7 @@ enum Subprocess {
 		processBox.register(process)
 
 		var timedOut = false
-		var abandoned = false
+		var abandoned: Bool = false
 		if terminated.wait(timeout: .now() + timeout) == .timedOut {
 			timedOut = true
 			process.terminate()
@@ -157,7 +157,7 @@ enum Subprocess {
 				}
 			}
 		}
-		let drainResult = drains.wait(timeout: .now() + killGracePeriod)
+		let drainResult: DispatchTimeoutResult = drains.wait(timeout: .now() + killGracePeriod)
 		stdout.fileHandleForReading.readabilityHandler = nil
 		stderr.fileHandleForReading.readabilityHandler = nil
 
@@ -198,6 +198,8 @@ enum Subprocess {
 enum SubprocessError: Error {
 
 	case timedOut(String, after: TimeInterval)
+	/// SIGKILL 送出後最終 `wait()` 仍逾時——子程序可能卡在不可中斷的核心睡眠態，
+	/// Bellhop 放棄等待、不再無限阻塞。關聯值為執行檔路徑與放棄前的總等待秒數。
 	case abandoned(String, after: TimeInterval)
 }
 
