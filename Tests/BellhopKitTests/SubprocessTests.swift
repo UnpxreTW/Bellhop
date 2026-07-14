@@ -43,4 +43,27 @@ struct SubprocessTests {
 		}
 		#expect(elapsed < .seconds(5))
 	}
+
+	@Test("Task 被 cancel 會提前終止子程序，而非等到自然結束或逾時")
+	func terminatesOnTaskCancellation() async throws {
+		let task: Task<Subprocess.Output, Error> = Task {
+			try await Subprocess.run("/bin/sleep", arguments: ["10"], timeout: 30)
+		}
+		try await Task.sleep(for: .milliseconds(100))
+		let clock: ContinuousClock = .init()
+		let elapsed = await clock.measure {
+			task.cancel()
+			_ = await task.result
+		}
+		#expect(elapsed < .seconds(3))
+	}
+
+	@Test("孫程序繼承 pipe 撐住 EOF 時，drain 逾時標記 truncated 而非無限等待")
+	func marksTruncatedWhenGrandchildHoldsPipeOpen() async throws {
+		let output = try await Subprocess.run(
+			"/bin/sh", arguments: ["-c", "( sleep 10 & ) ; exit 0"]
+		)
+		#expect(output.status == 0)
+		#expect(output.truncated)
+	}
 }

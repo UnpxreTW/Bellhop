@@ -25,12 +25,17 @@ enum Subprocess {
 		let status: Int32
 		let standardOutput: String
 		let standardError: String
+		/// drain 因逾時提前收尾時為 true——此時 `standardOutput` / `standardError` 可能不完整，
+		/// 即使 `status` 本身是父程序真實成功碼。
+		let truncated: Bool
 	}
 
 	/// 預設逾時秒數。
 	static let defaultTimeout: TimeInterval = 30
 
 	/// 執行子程序並收齊輸出。
+	///
+	/// 呼叫端 Task 被 cancel 時會對子程序送 `terminate()`，不會放著跑到自然結束或逾時。
 	///
 	/// - Parameters:
 	///   - executablePath: 執行檔絕對路徑。
@@ -41,12 +46,17 @@ enum Subprocess {
 		arguments: [String],
 		timeout: TimeInterval = defaultTimeout
 	) async throws -> Output {
-		try await withCheckedThrowingContinuation { continuation in
-			DispatchQueue.global(qos: .userInitiated).async {
-				continuation.resume(with: Result {
-					try runSync(executablePath, arguments: arguments, timeout: timeout)
-				})
+		let processBox: ProcessBox = .init()
+		return try await withTaskCancellationHandler {
+			try await withCheckedThrowingContinuation { continuation in
+				DispatchQueue.global(qos: .userInitiated).async {
+					continuation.resume(with: Result {
+						try runSync(executablePath, arguments: arguments, timeout: timeout, processBox: processBox)
+					})
+				}
 			}
+		} onCancel: {
+			processBox.cancel()
 		}
 	}
 
@@ -71,6 +81,40 @@ enum Subprocess {
 		}
 	}
 
+	/// 跨執行緒交握子程序控制權的容器，讓 Task cancellation 能 terminate() 一個可能還沒
+	/// spawn 完成的子程序。
+	///
+	/// `onCancel` 可能在任意執行緒、任意時間點（含 `runSync` 尚未跑到 `process.run()` 前）
+	/// 同步觸發；用鎖 + 旗標讓「先 cancel 後 process 就緒」與「先 process 就緒後 cancel」
+	/// 兩種到達順序都導向同一個 `terminate()` 呼叫——`Process.terminate()` 本身可重複呼叫、
+	/// 可在任意執行緒呼叫，是安全的。
+	private final class ProcessBox: @unchecked Sendable {
+
+		private let lock: NSLock = .init()
+		private var process: Process?
+		private var cancelled: Bool = false
+
+		/// `runSync` 成功 `process.run()` 後登記，讓已發生的 cancel 有東西可 terminate()。
+		func register(_ process: Process) {
+			lock.lock()
+			self.process = process
+			let shouldTerminate: Bool = cancelled
+			lock.unlock()
+			if shouldTerminate {
+				process.terminate()
+			}
+		}
+
+		/// Task cancellation 觸發；process 已就緒就直接 terminate()，否則記旗標待 register() 補送。
+		func cancel() {
+			lock.lock()
+			cancelled = true
+			let existing: Process? = process
+			lock.unlock()
+			existing?.terminate()
+		}
+	}
+
 	/// SIGTERM 後等待子程序退出的寬限秒數，逾期升級 SIGKILL。
 	private static let killGracePeriod: TimeInterval = 2
 
@@ -78,7 +122,8 @@ enum Subprocess {
 	private static func runSync(
 		_ executablePath: String,
 		arguments: [String],
-		timeout: TimeInterval
+		timeout: TimeInterval,
+		processBox: ProcessBox
 	) throws -> Output {
 		let process: Process = .init()
 		process.executableURL = URL(fileURLWithPath: executablePath)
@@ -98,27 +143,35 @@ enum Subprocess {
 		process.terminationHandler = { _ in terminated.signal() }
 
 		try process.run()
+		processBox.register(process)
 
 		var timedOut = false
+		var abandoned: Bool = false
 		if terminated.wait(timeout: .now() + timeout) == .timedOut {
 			timedOut = true
 			process.terminate()
 			if terminated.wait(timeout: .now() + killGracePeriod) == .timedOut {
 				kill(process.processIdentifier, SIGKILL)
-				terminated.wait()
+				if terminated.wait(timeout: .now() + killGracePeriod) == .timedOut {
+					abandoned = true
+				}
 			}
 		}
-		_ = drains.wait(timeout: .now() + killGracePeriod)
+		let drainResult: DispatchTimeoutResult = drains.wait(timeout: .now() + killGracePeriod)
 		stdout.fileHandleForReading.readabilityHandler = nil
 		stderr.fileHandleForReading.readabilityHandler = nil
 
+		if abandoned {
+			throw SubprocessError.abandoned(executablePath, after: timeout + killGracePeriod * 2)
+		}
 		if timedOut {
 			throw SubprocessError.timedOut(executablePath, after: timeout)
 		}
 		return Output(
 			status: process.terminationStatus,
 			standardOutput: outBuffer.text,
-			standardError: errBuffer.text
+			standardError: errBuffer.text,
+			truncated: drainResult == .timedOut
 		)
 	}
 
@@ -145,6 +198,9 @@ enum Subprocess {
 enum SubprocessError: Error {
 
 	case timedOut(String, after: TimeInterval)
+	/// SIGKILL 送出後最終 `wait()` 仍逾時——子程序可能卡在不可中斷的核心睡眠態，
+	/// Bellhop 放棄等待、不再無限阻塞。關聯值為執行檔路徑與放棄前的總等待秒數。
+	case abandoned(String, after: TimeInterval)
 }
 
 // MARK: - + CustomStringConvertible
@@ -158,6 +214,12 @@ extension SubprocessError: CustomStringConvertible {
 			\(executablePath) timed out after \(Int(seconds))s and was terminated — \
 			a blocked system permission prompt on the machine can cause this; grant the \
 			permission to the app that launches Bellhop, then retry.
+			"""
+		case let .abandoned(executablePath, seconds):
+			"""
+			\(executablePath) did not exit within \(Int(seconds))s even after SIGKILL — \
+			it may be stuck in an uninterruptible kernel sleep, so Bellhop gave up waiting. \
+			The process may still be running; check manually if this persists.
 			"""
 		}
 	}
