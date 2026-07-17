@@ -161,6 +161,9 @@ enum ScreenTools {
 	/// 實測（macOS 27）Terminal 的 AppleScript window id 與 `kCGWindowNumber` 同號
 	/// （含最小化視窗），所以先直接驗證同號視窗存在；不成立時退回 bounds 比對
 	/// （兩套座標實測同源對齊，見 ``WindowBounds``）。
+	///
+	/// - Important: 上述對齊關係為實機驗證、非文件保證行為，macOS 大版更新後應人工重驗；
+	///   目前無自動化測試涵蓋此前提（真機依賴、CI 難模擬）。
 	private static func cgWindowID(forTerminalWindowID windowID: Int) async -> CGWindowID? {
 		let windows = terminalCGWindows()
 		if windowID > 0, windows.contains(where: { $0.number == CGWindowID(windowID) }) {
