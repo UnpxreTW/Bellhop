@@ -20,6 +20,10 @@ enum TerminalTools {
 
 	// MARK: Internal
 
+	/// 執行一段 AppleScript 並回傳 stdout 的函式型別；測試以假實作注入避免真的呼叫 Terminal.app，
+	/// 藉此涵蓋 `handle` 分派邏輯（含 BUSY 拒跑分支）而不依賴真機 automation。
+	typealias OsascriptRunner = @Sendable (String) async throws -> String
+
 	/// 對 client 曝光的工具，依列出順序。
 	static let all: [Tool] = [
 		Tool(
@@ -87,15 +91,22 @@ enum TerminalTools {
 	/// 將 tool 呼叫分派到對應實作。
 	///
 	/// 工具層失敗依 MCP 慣例以 `isError: true` 回傳、不丟例外。
-	static func handle(name: String, arguments: [String: Value]?) async -> CallTool.Result {
+	///
+	/// - Parameter osascriptRunner: 執行 AppleScript 的實作，預設走真的 ``runOsascript``；
+	///   測試注入假實作以涵蓋分派邏輯，不必真的操控 Terminal.app。
+	static func handle(
+		name: String,
+		arguments: [String: Value]?,
+		osascriptRunner: OsascriptRunner = runOsascript
+	) async -> CallTool.Result {
 		do {
 			switch name {
 			case "terminal_open":
-				return try await openTerminal(arguments: arguments)
+				return try await openTerminal(arguments: arguments, osascriptRunner: osascriptRunner)
 			case "terminal_run":
-				return try await runInWindow(arguments: arguments)
+				return try await runInWindow(arguments: arguments, osascriptRunner: osascriptRunner)
 			case "terminal_list_windows":
-				return try await listTerminalWindows()
+				return try await listTerminalWindows(osascriptRunner: osascriptRunner)
 			default:
 				return .init(
 					content: [.text(text: "Unknown tool: \(name)", annotations: nil, _meta: nil)],
@@ -141,18 +152,24 @@ enum TerminalTools {
 
 	// MARK: Private
 
-	private static func openTerminal(arguments: [String: Value]?) async throws -> CallTool.Result {
+	private static func openTerminal(
+		arguments: [String: Value]?,
+		osascriptRunner: OsascriptRunner
+	) async throws -> CallTool.Result {
 		let payload = openPayload(
 			command: arguments?["command"]?.stringValue ?? "",
 			cwd: arguments?["cwd"]?.stringValue ?? ""
 		)
 		let script =
 			"tell application \"Terminal\" to do script \"\(appleScriptEscape(payload))\""
-		let out = try await runOsascript(script)
+		let out = try await osascriptRunner(script)
 		return .init(content: [.text(text: out, annotations: nil, _meta: nil)], isError: false)
 	}
 
-	private static func runInWindow(arguments: [String: Value]?) async throws -> CallTool.Result {
+	private static func runInWindow(
+		arguments: [String: Value]?,
+		osascriptRunner: OsascriptRunner
+	) async throws -> CallTool.Result {
 		guard
 			let command = arguments?["command"]?.stringValue, !command.isEmpty,
 			let windowID = arguments?["window_id"]?.intValue
@@ -175,7 +192,7 @@ enum TerminalTools {
 			\tdo script "\(appleScriptEscape(command))" in theWindow
 			end tell
 			"""
-		let out = try await runOsascript(script)
+		let out = try await osascriptRunner(script)
 		if out == "BUSY" {
 			return .init(
 				content: [
@@ -193,7 +210,7 @@ enum TerminalTools {
 		return .init(content: [.text(text: out, annotations: nil, _meta: nil)], isError: false)
 	}
 
-	private static func listTerminalWindows() async throws -> CallTool.Result {
+	private static func listTerminalWindows(osascriptRunner: OsascriptRunner) async throws -> CallTool.Result {
 		let script = """
 			tell application "Terminal"
 			\tset out to ""
@@ -203,7 +220,7 @@ enum TerminalTools {
 			\treturn out
 			end tell
 			"""
-		let out = try await runOsascript(script)
+		let out = try await osascriptRunner(script)
 		return .init(
 			content: [
 				.text(

@@ -66,4 +66,26 @@ struct SubprocessTests {
 		#expect(output.status == 0)
 		#expect(output.truncated)
 	}
+
+	@Test("N 個並發呼叫互不干擾，各自收齊自己的輸出與 exit status")
+	func handlesConcurrentInvocationsIndependently() async throws {
+		let count = 20
+		try await withThrowingTaskGroup(of: (Int, Subprocess.Output).self) { group in
+			for index in 0..<count {
+				group.addTask {
+					let output = try await Subprocess.run(
+						"/bin/sh", arguments: ["-c", "printf 'out\(index)'; exit \(index % 5)"]
+					)
+					return (index, output)
+				}
+			}
+			var seen: Set<Int> = []
+			for try await (index, output) in group {
+				#expect(output.standardOutput == "out\(index)")
+				#expect(output.status == Int32(index % 5))
+				seen.insert(index)
+			}
+			#expect(seen.count == count)
+		}
+	}
 }
