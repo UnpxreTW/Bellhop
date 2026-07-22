@@ -15,13 +15,13 @@ import MCP
 
 /// 跨 App 通用視窗工具。
 ///
-/// 本版只曝光**零新權限**的唯讀／快照面：`window_list`（CGWindowList 讀現況）、
-/// `window_save_layout`（快照存檔）、`window_layout_list`（列已存 layout）。
-/// 會動視窗的動作面（`window_arrange`／`window_focus`／`window_set_frame`／
-/// `window_restore_layout`）需要 macOS Accessibility 權限整合，typed schema
-/// 已定義於 ``plannedTools`` 但尚未曝光——等權限歸屬與原生選單尋址驗證完成
-/// 後接上。視窗標題僅在宿主 app 已授 Screen Recording 權限時可讀（幾何與
-/// owner 資訊免權限）。工具 schema 本體見 `WindowToolsSchemas.swift`。
+/// 曝光面兩類：**零新權限**的唯讀／快照面（`window_list`／`window_save_layout`／
+/// `window_layout_list`）＋需要 macOS Accessibility 權限的動作面 primitive
+/// （`window_focus`／`window_set_frame`，AX 整合見 ``WindowActions``）。
+/// 走原生選單的 `window_arrange` 與 `window_restore_layout` 的 typed schema
+/// 已定義於 ``plannedTools`` 但尚未曝光——等選單尋址（AXIdentifier 有無）
+/// 實機驗證完成後接上。視窗標題僅在宿主 app 已授 Screen Recording 權限時
+/// 可讀（幾何與 owner 資訊免權限）。工具 schema 本體見 `WindowToolsSchemas.swift`。
 enum WindowTools {
 
 	// MARK: Internal
@@ -42,11 +42,16 @@ enum WindowTools {
 			saveLayout(arguments: arguments)
 		case "window_layout_list":
 			layoutList()
-		case "window_arrange", "window_focus", "window_set_frame", "window_restore_layout":
+		case "window_focus":
+			await focusWindow(arguments: arguments)
+		case "window_set_frame":
+			await setWindowFrame(arguments: arguments)
+		case "window_arrange", "window_restore_layout":
 			errorResult("""
-				\(name) is not available yet — it needs macOS Accessibility permission \
-				integration that has not landed. Currently available: window_list, \
-				window_save_layout, window_layout_list.
+				\(name) is not available yet — its Accessibility-based implementation \
+				(native menu addressing for arrange, window matching for layout \
+				restore) has not landed. Currently available: window_list, \
+				window_save_layout, window_layout_list, window_focus, window_set_frame.
 				""")
 		default:
 			errorResult("Unknown tool: \(name)")
@@ -211,6 +216,76 @@ enum WindowTools {
 		} catch {
 			return errorResult("Error: \(error)")
 		}
+	}
+
+	private static func focusWindow(arguments: [String: Value]?) async -> CallTool.Result {
+		guard let app = arguments?["app"]?.stringValue, !app.isEmpty else {
+			return errorResult("Missing `app` — the app to focus (name or bundle id).")
+		}
+		let windowTitle: String? = arguments?["window_title"]?.stringValue
+		do {
+			let message: String = try await WindowActions.focus(appFilter: app, windowTitle: windowTitle)
+			return .init(content: [.text(text: message, annotations: nil, _meta: nil)], isError: false)
+		} catch {
+			return errorResult("\(error)")
+		}
+	}
+
+	private static func setWindowFrame(arguments: [String: Value]?) async -> CallTool.Result {
+		guard let app = arguments?["app"]?.stringValue, !app.isEmpty else {
+			return errorResult("Missing `app` — the app owning the window (name or bundle id).")
+		}
+		guard
+			let originX = arguments?["x"]?.intValue,
+			let originY = arguments?["y"]?.intValue,
+			let width = arguments?["width"]?.intValue,
+			let height = arguments?["height"]?.intValue
+		else {
+			return errorResult("Missing or non-integer `x`/`y`/`width`/`height` — all four are required.")
+		}
+		guard width > 0, height > 0 else {
+			return errorResult("`width` and `height` must be positive.")
+		}
+		let target: WindowFrame = .init(originX: originX, originY: originY, width: width, height: height)
+		let windowTitle: String? = arguments?["window_title"]?.stringValue
+		do {
+			let outcome: WindowActions.SetFrameOutcome = try await WindowActions.setFrame(
+				appFilter: app, windowTitle: windowTitle, target: target
+			)
+			let windowLabel: String = "\"\(outcome.windowTitle ?? "(untitled)")\" of \(outcome.appName)"
+			guard outcome.final == outcome.requested else {
+				return .init(
+					content: [
+						.text(
+							text: """
+								Moved \(windowLabel) — the app settled at \
+								\(describe(outcome.final)) instead of the requested \
+								\(describe(outcome.requested)) (apps may enforce minimum \
+								sizes or size increments).
+								""",
+							annotations: nil, _meta: nil
+						)
+					],
+					isError: false
+				)
+			}
+			return .init(
+				content: [
+					.text(
+						text: "Moved \(windowLabel) to \(describe(outcome.final)).",
+						annotations: nil, _meta: nil
+					)
+				],
+				isError: false
+			)
+		} catch {
+			return errorResult("\(error)")
+		}
+	}
+
+	/// frame 的人可讀形（回報訊息用）。
+	private static func describe(_ frame: WindowFrame) -> String {
+		"{x: \(frame.originX), y: \(frame.originY), width: \(frame.width), height: \(frame.height)}"
 	}
 
 	private static func errorResult(_ message: String) -> CallTool.Result {
