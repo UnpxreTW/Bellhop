@@ -11,6 +11,8 @@ Bellhop 以**啟動它的使用者權限**運行，透過 `osascript` 對 Termin
 - `terminal_open`、`terminal_run`——可執行任意 shell 命令。這在設計上等同**任意程式執行**——這正是「終端機控制」功能本身，不是缺陷。
 - `terminal_list_windows`——唯讀列舉視窗 id、標題與忙碌狀態。
 - `screen_capture`——把螢幕內容截圖存檔（需 macOS Screen Recording 權限）；對畫面上的機敏資訊是一條讀取路徑。
+- `window_list`、`window_layout_list`——唯讀列舉跨 App 視窗與已存 layout。視窗**標題**需宿主已授 Screen Recording 權限才讀得到；標題可能含機敏資訊（文件名、網頁標題），是一條讀取路徑。
+- `window_save_layout`——把視窗幾何快照（含 app 名與視窗標題）寫進 `~/Library/Application Support/Bellhop/layouts/`；屬本機狀態檔、不外傳。
 
 因此使用上請注意：
 
