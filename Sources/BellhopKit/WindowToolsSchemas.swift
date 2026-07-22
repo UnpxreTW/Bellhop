@@ -73,45 +73,6 @@ extension WindowTools {
 				"type": .string("object"),
 				"properties": .object([:])
 			])
-		)
-	]
-
-	/// 已定型但**尚未曝光**的動作面工具（需 Accessibility 權限整合後接上）。
-	///
-	/// 先定 schema 的用意：把 client 可見的介面形狀連同本版一起 review 定案，
-	/// 權限整合只補實作、不再動介面。
-	static let plannedTools: [Tool] = [
-		Tool(
-			name: "window_arrange",
-			description: """
-				Arrange a window using the native macOS "Move & Resize" positions \
-				(fill, halves, quarters, center, or restore previous size). Falls back \
-				to computed frames when the native menu is unavailable. Requires \
-				macOS Accessibility permission; does not work while the screen is locked.
-				""",
-			inputSchema: .object([
-				"type": .string("object"),
-				"properties": .object([
-					"position": .object([
-						"type": .string("string"),
-						"enum": .array(WindowPosition.allCases.map { .string($0.rawValue) }),
-						"description": .string("Target position for the window.")
-					]),
-					"app": .object([
-						"type": .string("string"),
-						"description": .string(
-							"App to act on (name or bundle id). Defaults to the frontmost app."
-						)
-					]),
-					"window_title": .object([
-						"type": .string("string"),
-						"description": .string(
-							"Title of the window to act on. Defaults to the app's front window."
-						)
-					])
-				]),
-				"required": .array([.string("position")])
-			])
 		),
 		Tool(
 			name: "window_focus",
@@ -164,6 +125,45 @@ extension WindowTools {
 				"required": .array([
 					.string("app"), .string("x"), .string("y"), .string("width"), .string("height")
 				])
+			])
+		)
+	]
+
+	/// 已定型但**尚未曝光**的動作面工具（需原生選單尋址實機驗證後接上）。
+	///
+	/// 先定 schema 的用意：把 client 可見的介面形狀先 review 定案，後續
+	/// 只補實作、不再動介面。
+	static let plannedTools: [Tool] = [
+		Tool(
+			name: "window_arrange",
+			description: """
+				Arrange a window using the native macOS "Move & Resize" positions \
+				(fill, halves, quarters, center, or restore previous size). Falls back \
+				to computed frames when the native menu is unavailable. Requires \
+				macOS Accessibility permission; does not work while the screen is locked.
+				""",
+			inputSchema: .object([
+				"type": .string("object"),
+				"properties": .object([
+					"position": .object([
+						"type": .string("string"),
+						"enum": .array(WindowPosition.allCases.map { .string($0.rawValue) }),
+						"description": .string("Target position for the window.")
+					]),
+					"app": .object([
+						"type": .string("string"),
+						"description": .string(
+							"App to act on (name or bundle id). Defaults to the frontmost app."
+						)
+					]),
+					"window_title": .object([
+						"type": .string("string"),
+						"description": .string(
+							"Title of the window to act on. Defaults to the app's front window."
+						)
+					])
+				]),
+				"required": .array([.string("position")])
 			])
 		),
 		Tool(
