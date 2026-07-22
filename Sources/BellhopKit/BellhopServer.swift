@@ -27,16 +27,20 @@ public enum BellhopServer {
 			version: version,
 			instructions: """
 				Operate macOS through purpose-built, typed tools. \
-				Currently exposes Terminal.app window control and screen capture.
+				Currently exposes Terminal.app window control, screen capture, and \
+				cross-app window inspection with layout snapshots.
 				""",
 			capabilities: .init(tools: .init(listChanged: false))
 		)
 		await server.withMethodHandler(ListTools.self) { _ in
-			ListTools.Result(tools: TerminalTools.all + ScreenTools.all)
+			ListTools.Result(tools: TerminalTools.all + ScreenTools.all + WindowTools.all)
 		}
 		await server.withMethodHandler(CallTool.self) { params in
 			if ScreenTools.owns(params.name) {
 				return await ScreenTools.handle(name: params.name, arguments: params.arguments)
+			}
+			if WindowTools.owns(params.name) {
+				return await WindowTools.handle(name: params.name, arguments: params.arguments)
 			}
 			return await TerminalTools.handle(name: params.name, arguments: params.arguments)
 		}
