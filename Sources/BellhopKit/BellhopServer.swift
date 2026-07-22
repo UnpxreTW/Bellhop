@@ -28,7 +28,8 @@ public enum BellhopServer {
 			instructions: """
 				Operate macOS through purpose-built, typed tools. \
 				Currently exposes Terminal.app window control, screen capture, and \
-				cross-app window inspection with layout snapshots.
+				cross-app window tools (inspection, focus, frame control, and \
+				layout snapshots).
 				""",
 			capabilities: .init(tools: .init(listChanged: false))
 		)
