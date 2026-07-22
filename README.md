@@ -26,10 +26,15 @@ Bellhop 最初是為了一個情境而生：**人在手機上，透過 Claude ap
 | `terminal_run` | 在指定 `window_id` 的視窗跑命令；視窗忙碌（有前景程式在跑）就拒跑、不注入 | `command`、`window_id`（皆必填） |
 | `terminal_list_windows` | 列出開啟中的視窗 id、標題與 `busy` 狀態 | 無 |
 | `screen_capture` | 截圖存檔、回傳路徑（不 inline 圖）；預設主螢幕，可選指定 Terminal 視窗 / 區域 / 螢幕 | `window_id`、`region`(`"x,y,w,h"`)、`display`、`path`、`format`(`png`/`jpg`)，皆可選 |
+| `window_list` | 跨 App 列出視窗：app 名、bundle id、frame、所在螢幕、是否在畫面上；唯讀、零新權限 | `app`（過濾）、`include_offscreen`，皆可選 |
+| `window_save_layout` | 把當前視窗排列（跨 Space）存成具名快照 | `name`（必填） |
+| `window_layout_list` | 列出已存的 layout 快照 | 無 |
 
 `terminal_run` 是「把命令打進該視窗當前在跑的程式」，所以只在視窗閒置於 shell 提示字元（`busy=false`）時乾淨執行——跑著程式的視窗（含其他編輯器 / session）會被自動拒跑、不被誤注入。先用 `terminal_list_windows` 挑 `busy=false` 的目標。
 
 `screen_capture` 跟 terminal 工具不同性質：它走 `screencapture`、**需 macOS Screen Recording 權限、且螢幕鎖定下截不到**（不是 lock-safe）。截圖存成檔案、只回路徑（避開 base64 體積），預設存 `~/Downloads/`。指定 `window_id`（取自 `terminal_list_windows`）會只截那個 Terminal 視窗。
+
+`window_*` 工具是跨 App 的通用視窗面：`window_list` 走 CGWindowList 唯讀讀取、**不需要任何新權限**——但視窗**標題**只在執行 Bellhop 的 app 已授 Screen Recording 權限時讀得到（幾何與 owner 資訊免權限）。`window_save_layout` 把快照寫進 `~/Library/Application Support/Bellhop/layouts/<name>.json`。會**動**視窗的工具（排列 / 聚焦 / 搬移 / 還原 layout）需要 macOS Accessibility 權限，接口已定型、實作待權限整合後推出，本版尚未曝光。
 
 ## 安裝與使用
 
