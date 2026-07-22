@@ -20,16 +20,57 @@ struct WindowToolsTests {
 		#expect(!WindowTools.owns("screen_capture"))
 	}
 
-	@Test("曝光面只含零新權限的三顆、動作面留在 plannedTools")
-	func exposedToolsAreTheReadOnlyThree() {
-		#expect(WindowTools.all.map(\.name) == ["window_list", "window_save_layout", "window_layout_list"])
+	@Test("曝光面＝唯讀三顆＋動作面 primitive 兩顆、選單類留在 plannedTools")
+	func exposedToolsAreReadOnlyThreePlusActionPrimitives() {
 		#expect(
-			WindowTools.plannedTools.map(\.name) == [
-				"window_arrange", "window_focus", "window_set_frame", "window_restore_layout"
+			WindowTools.all.map(\.name) == [
+				"window_list", "window_save_layout", "window_layout_list",
+				"window_focus", "window_set_frame"
 			]
 		)
+		#expect(WindowTools.plannedTools.map(\.name) == ["window_arrange", "window_restore_layout"])
 		let exposed = Set(WindowTools.all.map(\.name))
 		#expect(exposed.isDisjoint(with: WindowTools.plannedTools.map(\.name)))
+	}
+
+	@Test("window_focus 缺 app 參數回 isError、不進 AX 層")
+	func focusWithoutAppReportsError() async {
+		let result = await WindowTools.handle(name: "window_focus", arguments: nil)
+		#expect(result.isError == true)
+		if case let .text(text, _, _) = result.content.first {
+			#expect(text.contains("`app`"))
+		} else {
+			Issue.record("expected text content")
+		}
+	}
+
+	@Test("window_set_frame 缺座標參數回 isError、不進 AX 層")
+	func setFrameWithoutCoordinatesReportsError() async {
+		let result = await WindowTools.handle(
+			name: "window_set_frame", arguments: ["app": .string("Safari")]
+		)
+		#expect(result.isError == true)
+		if case let .text(text, _, _) = result.content.first {
+			#expect(text.contains("`x`/`y`/`width`/`height`"))
+		} else {
+			Issue.record("expected text content")
+		}
+	}
+
+	@Test("window_set_frame 拒絕非正的寬高")
+	func setFrameRejectsNonPositiveSize() async {
+		let result = await WindowTools.handle(
+			name: "window_set_frame",
+			arguments: [
+				"app": .string("Safari"), "x": .int(0), "y": .int(0), "width": .int(0), "height": .int(600)
+			]
+		)
+		#expect(result.isError == true)
+		if case let .text(text, _, _) = result.content.first {
+			#expect(text.contains("positive"))
+		} else {
+			Issue.record("expected text content")
+		}
 	}
 
 	@Test("未接上的動作面工具回 isError、點名缺 Accessibility 整合")
