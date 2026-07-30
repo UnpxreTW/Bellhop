@@ -13,3 +13,30 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: fsfe/reuse-action@v6
+      # REUSE.toml 的批次註記讓整包合規，代價是漏掛 inline header 的單一原始檔
+      # 不會再被 reuse 抓到。這步把「每個 .swift 都要自帶 SPDX 標頭」這條不變量
+      # 補回來檢查。
+      # 只掃 REUSE.toml 那條 .swift 批次註記涵蓋的路徑；`Package.swift` 是 manifest、
+      # 由另一條註記涵蓋、依慣例不掛 inline header。
+      # REUSE-IgnoreStart —— 以下是 grep 的搜尋字串，不是本檔的授權宣告，
+      # 不包起來 reuse 會把它當成一則要解析的授權表達式。
+      - name: Every Swift source carries an inline SPDX identifier
+        run: |
+          set -euo pipefail
+          files=$(git ls-files 'Plugins/**/*.swift' 'Sources/**/*.swift' 'Tests/**/*.swift')
+          # 空清單＝pathspec 失配或 git 失敗，不是「全部合格」。守門靜默放行比沒有
+          # 守門更糟，所以先斷言真的掃到東西再說。
+          if [ -z "$files" ]; then
+            echo "Guard matched no Swift sources — the pathspecs are wrong or git failed."
+            exit 1
+          fi
+          echo "Checking $(printf '%s\n' "$files" | wc -l | tr -d ' ') Swift sources."
+          missing=$(printf '%s\n' "$files" | while read -r file; do
+            grep -q 'SPDX-License-Identifier' "$file" || echo "$file"
+          done)
+          if [ -n "$missing" ]; then
+            echo "These files need an inline SPDX-License-Identifier header:"
+            echo "$missing"
+            exit 1
+          fi
+      # REUSE-IgnoreEnd

@@ -20,15 +20,15 @@ struct WindowToolsTests {
 		#expect(!WindowTools.owns("screen_capture"))
 	}
 
-	@Test("曝光面＝唯讀三顆＋動作面 primitive 兩顆、選單類留在 plannedTools")
-	func exposedToolsAreReadOnlyThreePlusActionPrimitives() {
+	@Test("曝光面＝唯讀三顆＋動作面三顆、走原生選單的 arrange 留在 plannedTools")
+	func exposedToolsAreReadOnlyThreePlusActionThree() {
 		#expect(
 			WindowTools.all.map(\.name) == [
 				"window_list", "window_save_layout", "window_layout_list",
-				"window_focus", "window_set_frame"
+				"window_focus", "window_set_frame", "window_restore_layout"
 			]
 		)
-		#expect(WindowTools.plannedTools.map(\.name) == ["window_arrange", "window_restore_layout"])
+		#expect(WindowTools.plannedTools.map(\.name) == ["window_arrange"])
 		let exposed = Set(WindowTools.all.map(\.name))
 		#expect(exposed.isDisjoint(with: WindowTools.plannedTools.map(\.name)))
 	}
@@ -73,17 +73,42 @@ struct WindowToolsTests {
 		}
 	}
 
-	@Test("未接上的動作面工具回 isError、點名缺 Accessibility 整合")
+	@Test("未接上的動作面工具回 isError、點名缺原生選單尋址並指路替代工具")
 	func plannedToolsReportUnavailable() async {
 		for name in WindowTools.plannedTools.map(\.name) {
 			let result = await WindowTools.handle(name: name, arguments: nil)
 			#expect(result.isError == true)
 			if case let .text(text, _, _) = result.content.first {
 				#expect(text.contains("not available yet"))
-				#expect(text.contains("Accessibility"))
+				#expect(text.contains("menu"))
+				#expect(text.contains("window_set_frame"))
 			} else {
 				Issue.record("expected text content for \(name)")
 			}
+		}
+	}
+
+	@Test("window_restore_layout 缺 name 參數回 isError、不進 AX 層")
+	func restoreLayoutWithoutNameReportsError() async {
+		let result = await WindowTools.handle(name: "window_restore_layout", arguments: nil)
+		#expect(result.isError == true)
+		if case let .text(text, _, _) = result.content.first {
+			#expect(text.contains("`name`"))
+		} else {
+			Issue.record("expected text content")
+		}
+	}
+
+	@Test("window_restore_layout 拒絕路徑穿越的 name、不落地讀檔")
+	func restoreLayoutRejectsUnsafeName() async {
+		let result = await WindowTools.handle(
+			name: "window_restore_layout", arguments: ["name": .string("../escape")]
+		)
+		#expect(result.isError == true)
+		if case let .text(text, _, _) = result.content.first {
+			#expect(text.contains("`name`"))
+		} else {
+			Issue.record("expected text content")
 		}
 	}
 

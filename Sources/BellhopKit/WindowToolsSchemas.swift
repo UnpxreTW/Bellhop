@@ -126,6 +126,29 @@ extension WindowTools {
 					.string("app"), .string("x"), .string("y"), .string("width"), .string("height")
 				])
 			])
+		),
+		Tool(
+			name: "window_restore_layout",
+			description: """
+				Restore a saved window layout. Only windows on the current Space can \
+				be moved (macOS Accessibility limitation); windows it cannot reach — \
+				including minimized ones, which are left alone — are reported as \
+				skipped. Only window frames are restored: stacking order and which \
+				Space a window lives on are not. When the display setup differs from \
+				the snapshot, frames are clamped into the current screens and \
+				annotated. Requires macOS Accessibility permission; does not work \
+				while the screen is locked.
+				""",
+			inputSchema: .object([
+				"type": .string("object"),
+				"properties": .object([
+					"name": .object([
+						"type": .string("string"),
+						"description": .string("Name of the saved layout (from window_layout_list).")
+					])
+				]),
+				"required": .array([.string("name")])
+			])
 		)
 	]
 
@@ -164,26 +187,6 @@ extension WindowTools {
 					])
 				]),
 				"required": .array([.string("position")])
-			])
-		),
-		Tool(
-			name: "window_restore_layout",
-			description: """
-				Restore a saved window layout. Only windows on the current Space can \
-				be moved (macOS Accessibility limitation); windows it cannot reach are \
-				reported as skipped. When the display setup differs from the snapshot, \
-				frames are clamped into the current screens and annotated. Requires \
-				macOS Accessibility permission; does not work while the screen is locked.
-				""",
-			inputSchema: .object([
-				"type": .string("object"),
-				"properties": .object([
-					"name": .object([
-						"type": .string("string"),
-						"description": .string("Name of the saved layout (from window_layout_list).")
-					])
-				]),
-				"required": .array([.string("name")])
 			])
 		)
 	]
