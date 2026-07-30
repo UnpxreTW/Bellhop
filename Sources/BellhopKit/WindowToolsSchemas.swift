@@ -131,10 +131,13 @@ extension WindowTools {
 			name: "window_restore_layout",
 			description: """
 				Restore a saved window layout. Only windows on the current Space can \
-				be moved (macOS Accessibility limitation); windows it cannot reach are \
-				reported as skipped. When the display setup differs from the snapshot, \
-				frames are clamped into the current screens and annotated. Requires \
-				macOS Accessibility permission; does not work while the screen is locked.
+				be moved (macOS Accessibility limitation); windows it cannot reach — \
+				including minimized ones, which are left alone — are reported as \
+				skipped. Only window frames are restored: stacking order and which \
+				Space a window lives on are not. When the display setup differs from \
+				the snapshot, frames are clamped into the current screens and \
+				annotated. Requires macOS Accessibility permission; does not work \
+				while the screen is locked.
 				""",
 			inputSchema: .object([
 				"type": .string("object"),
