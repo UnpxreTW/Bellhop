@@ -90,8 +90,10 @@ enum WindowActions {
 			throw WindowActionError.axFailed("list windows of \(appName)", error)
 		}
 		let windows: [AXUIElement] = value as? [AXUIElement] ?? []
-		// !!!: messaging timeout 是 per-element 設定、不隨 app element 繼承——
-		// 視窗上的後續呼叫也要自己設，否則吃系統預設逾時。
+		// !!!: 逐窗也設一次逾時——目的是防禦，不是主張「app element 的設定不會涵蓋
+		// 視窗」。官方文件對「設在 application element 上是否套用到該 app 的所有
+		// 訊息」的敘述與此處作法孰為必要**未經本機驗證**；重設的成本是一次本地
+		// 呼叫，而漏設的代價是吃系統預設逾時、無回應的 app 會拖住整批，故從寬。
 		for window in windows { AXUIElementSetMessagingTimeout(window, messagingTimeout) }
 		return windows
 	}
@@ -110,6 +112,10 @@ enum WindowActions {
 	/// 重寫一次的理由：WindowServer 在跨螢幕搬移後的下一輪 redraw 會把 frame
 	/// 糾正回原螢幕的合法位置。回讀值可能仍與要求不同（app 強制最小尺寸或尺寸
 	/// 級距），以回讀為準、不假裝命中。
+	///
+	/// - Important: 本函式**不自己處理** `AXEnhancedUserInterface`。呼叫端必須包在
+	///   ``withEnhancedUISuppressed(on:_:)`` 內，否則目標 app 開了輔助功能增強時
+	///   寫入會被動畫干擾、產生回彈。
 	static func applyVerified(_ target: WindowFrame, to window: AXUIElement) throws -> WindowFrame {
 		try apply(target, to: window)
 		let settled: WindowFrame = try frame(of: window)
