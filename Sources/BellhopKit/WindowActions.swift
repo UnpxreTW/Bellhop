@@ -12,7 +12,8 @@ import Foundation
 
 // MARK: - WindowActions
 
-/// 動作面的 AX（Accessibility）整合層：聚焦與搬移任意 App 的視窗。
+/// 動作面的 AX（Accessibility）整合層：聚焦、搬移任意 App 的視窗，以及把
+/// 具名 layout 快照批次寫回（還原見 `WindowActionsRestore.swift`）。
 ///
 /// 全程直呼 `AXUIElement` C API、零 osascript——只吃 macOS Accessibility
 /// 一種權限（TCC 掛在 spawn Bellhop 的宿主 app 頭上，如 Terminal.app 或
@@ -21,45 +22,12 @@ import Foundation
 /// 同艙位）。所有阻塞的 AX 呼叫都落在 GCD 執行緒（同 ``Subprocess`` 的
 /// 隔離原則），並對 app element 設 ``messagingTimeout``——目標 app 無回應
 /// 時逾時返回、不無限卡住 server。
+///
+/// 純比對邏輯（app／視窗挑選）分在 `WindowActionsMatching.swift`：那段不碰
+/// AX、可自動化測；AX 呼叫本身需要實機 GUI session 與授權、測不到。
 enum WindowActions {
 
 	// MARK: Internal
-
-	/// app 候選（純比對形、AX 無關，供 ``selectApp(from:filter:)`` 測試）。
-	struct AppCandidate: Equatable {
-
-		/// app 顯示名（本地化值，中文系統上 Terminal 是「終端機」）。
-		let name: String?
-
-		/// bundle identifier。
-		let bundleID: String?
-	}
-
-	/// app 比對結果。
-	enum AppMatch: Equatable {
-
-		/// 無任何候選命中。
-		case none
-
-		/// 唯一命中（候選索引）。
-		case unique(Int)
-
-		/// 多筆命中且無法以「完全相等」收斂（附候選描述清單）。
-		case ambiguous([String])
-	}
-
-	/// 視窗比對結果。
-	enum WindowMatch: Equatable {
-
-		/// app 沒有任何可及視窗。
-		case none
-
-		/// 命中（視窗索引）。
-		case unique(Int)
-
-		/// 指定標題無命中（附可用標題清單）。
-		case titleNotFound([String])
-	}
 
 	/// `setFrame` 的落定結果。
 	struct SetFrameOutcome: Equatable, Sendable {
@@ -78,41 +46,8 @@ enum WindowActions {
 		let final: WindowFrame
 	}
 
-	/// 以過濾字串挑唯一 app：不分大小寫子字串比對顯示名與 bundle id；
-	/// 多筆命中時以「完全相等」收斂、仍多筆＝ambiguous。
-	static func selectApp(from candidates: [AppCandidate], filter: String) -> AppMatch {
-		let hits: [Int] = candidates.indices.filter { index in
-			let candidate: AppCandidate = candidates[index]
-			if candidate.name?.localizedCaseInsensitiveContains(filter) == true { return true }
-			if candidate.bundleID?.localizedCaseInsensitiveContains(filter) == true { return true }
-			return false
-		}
-		if hits.isEmpty { return .none }
-		if hits.count == 1, let only = hits.first { return .unique(only) }
-		let exact: [Int] = hits.filter { index in
-			let candidate: AppCandidate = candidates[index]
-			if candidate.name?.caseInsensitiveCompare(filter) == .orderedSame { return true }
-			if candidate.bundleID?.caseInsensitiveCompare(filter) == .orderedSame { return true }
-			return false
-		}
-		if exact.count == 1, let only = exact.first { return .unique(only) }
-		let described: [String] = hits.map { index in
-			let candidate: AppCandidate = candidates[index]
-			return "\(candidate.name ?? "(unnamed)") (\(candidate.bundleID ?? "no bundle id"))"
-		}
-		return .ambiguous(described)
-	}
-
-	/// 以標題挑視窗：無標題參數＝取第一個（清單已把主視窗排最前）；
-	/// 有標題＝不分大小寫子字串比對取第一個命中。
-	static func selectWindow(titles: [String?], filter: String?) -> WindowMatch {
-		guard !titles.isEmpty else { return .none }
-		guard let filter, !filter.isEmpty else { return .unique(0) }
-		if let index = titles.firstIndex(where: { $0?.localizedCaseInsensitiveContains(filter) == true }) {
-			return .unique(index)
-		}
-		return .titleNotFound(titles.map { $0 ?? "(untitled)" })
-	}
+	/// 對目標 app 的 AX messaging 逾時秒數——無回應的 app 不拖垮 server。
+	static let messagingTimeout: Float = 3.0
 
 	/// 聚焦視窗：最小化先展開 → `AXRaise` 喚起 → 把 app 設為最前景。
 	///
@@ -133,26 +68,91 @@ enum WindowActions {
 		try await runBlocking { try setFrameSync(appFilter: appFilter, windowTitle: windowTitle, target: target) }
 	}
 
-	// MARK: Private
-
-	/// 對目標 app 的 AX messaging 逾時秒數——無回應的 app 不拖垮 server。
-	private static let messagingTimeout: Float = 3.0
-
-	/// `AXEnhancedUserInterface` 屬性名（無 SDK 常數）。目標 app 此屬性為
-	/// true 時 set frame 會被輔助動畫干擾、產生回彈，業界標準解法是
-	/// 設定前暫時關掉、設完還原。
-	private static let enhancedUserInterfaceAttribute: String = "AXEnhancedUserInterface"
-
 	/// 把同步阻塞的 AX 流程隔離到 GCD 執行緒（不佔 Swift concurrency 合作池）。
-	private static func runBlocking<T: Sendable>(
-		_ work: @escaping @Sendable () throws -> T
-	) async throws -> T {
+	static func runBlocking<Value: Sendable>(
+		_ work: @escaping @Sendable () throws -> Value
+	) async throws -> Value {
 		try await withCheckedThrowingContinuation { continuation in
 			DispatchQueue.global(qos: .userInitiated).async {
 				continuation.resume(with: Result { try work() })
 			}
 		}
 	}
+
+	/// 取 app 經 AX 可及的視窗清單（順序即 z-order、前景在先）。
+	///
+	/// AX 只看得到**當前 Space** 的視窗，其他 Space 的窗在此一律不存在——
+	/// 跨 Space 要靠私有 API，不做。
+	static func windowList(of appElement: AXUIElement, appName: String) throws -> [AXUIElement] {
+		var value: CFTypeRef?
+		let error: AXError = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
+		guard error == .success else {
+			throw WindowActionError.axFailed("list windows of \(appName)", error)
+		}
+		let windows: [AXUIElement] = value as? [AXUIElement] ?? []
+		// !!!: messaging timeout 是 per-element 設定、不隨 app element 繼承——
+		// 視窗上的後續呼叫也要自己設，否則吃系統預設逾時。
+		for window in windows { AXUIElementSetMessagingTimeout(window, messagingTimeout) }
+		return windows
+	}
+
+	/// 讀視窗標題；讀不到（app 不給或逾時）回 nil。
+	static func title(of window: AXUIElement) -> String? {
+		var value: CFTypeRef?
+		guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &value) == .success else {
+			return nil
+		}
+		return value as? String
+	}
+
+	/// 寫入 frame 後回讀驗收；不符就再覆寫一次，回傳第二次回讀的值。
+	///
+	/// 重寫一次的理由：WindowServer 在跨螢幕搬移後的下一輪 redraw 會把 frame
+	/// 糾正回原螢幕的合法位置。回讀值可能仍與要求不同（app 強制最小尺寸或尺寸
+	/// 級距），以回讀為準、不假裝命中。
+	static func applyVerified(_ target: WindowFrame, to window: AXUIElement) throws -> WindowFrame {
+		try apply(target, to: window)
+		let settled: WindowFrame = try frame(of: window)
+		guard settled != target else { return settled }
+		try apply(target, to: window)
+		return try frame(of: window)
+	}
+
+	/// 在暫時關掉目標 app `AXEnhancedUserInterface` 的狀態下寫入 frame（做完還原）。
+	///
+	/// 該屬性為 true 時輔助功能的動畫會干擾 set frame、造成回彈；業界標準解法就是
+	/// 寫入前後夾一層開關。原本為 false 的 app 不動它。
+	static func withEnhancedUISuppressed<Value>(
+		on appElement: AXUIElement,
+		_ work: () throws -> Value
+	) rethrows -> Value {
+		var enhanced: CFTypeRef?
+		let suppress: Bool = AXUIElementCopyAttributeValue(
+			appElement, enhancedUserInterfaceAttribute as CFString, &enhanced
+		) == .success && enhanced as? Bool == true
+		if suppress {
+			try? setAttribute(
+				enhancedUserInterfaceAttribute, kCFBooleanFalse, on: appElement,
+				operation: "suspend enhanced UI"
+			)
+		}
+		defer {
+			if suppress {
+				try? setAttribute(
+					enhancedUserInterfaceAttribute, kCFBooleanTrue, on: appElement,
+					operation: "restore enhanced UI"
+				)
+			}
+		}
+		return try work()
+	}
+
+	// MARK: Private
+
+	/// `AXEnhancedUserInterface` 屬性名（無 SDK 常數）。目標 app 此屬性為
+	/// true 時 set frame 會被輔助動畫干擾、產生回彈，業界標準解法是
+	/// 設定前暫時關掉、設完還原。
+	private static let enhancedUserInterfaceAttribute: String = "AXEnhancedUserInterface"
 
 	private static func focusSync(appFilter: String, windowTitle: String?) throws -> String {
 		let (appElement, appName) = try resolveApp(filter: appFilter)
@@ -180,29 +180,8 @@ enum WindowActions {
 	) throws -> SetFrameOutcome {
 		let (appElement, appName) = try resolveApp(filter: appFilter)
 		let (window, title) = try resolveWindow(in: appElement, appName: appName, title: windowTitle)
-		var enhanced: CFTypeRef?
-		let suppressEnhancedUI: Bool = AXUIElementCopyAttributeValue(
-			appElement, enhancedUserInterfaceAttribute as CFString, &enhanced
-		) == .success && enhanced as? Bool == true
-		if suppressEnhancedUI {
-			try? setAttribute(
-				enhancedUserInterfaceAttribute, kCFBooleanFalse, on: appElement,
-				operation: "suspend enhanced UI"
-			)
-		}
-		defer {
-			if suppressEnhancedUI {
-				try? setAttribute(
-					enhancedUserInterfaceAttribute, kCFBooleanTrue, on: appElement,
-					operation: "restore enhanced UI"
-				)
-			}
-		}
-		try apply(target, to: window)
-		var final: WindowFrame = try frame(of: window)
-		if final != target {
-			try apply(target, to: window)
-			final = try frame(of: window)
+		let final: WindowFrame = try withEnhancedUISuppressed(on: appElement) {
+			try applyVerified(target, to: window)
 		}
 		return SetFrameOutcome(appName: appName, windowTitle: title, requested: target, final: final)
 	}
@@ -235,12 +214,7 @@ enum WindowActions {
 		appName: String,
 		title filterTitle: String?
 	) throws -> (window: AXUIElement, title: String?) {
-		var value: CFTypeRef?
-		let error: AXError = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
-		guard error == .success else {
-			throw WindowActionError.axFailed("list windows of \(appName)", error)
-		}
-		var windows: [AXUIElement] = value as? [AXUIElement] ?? []
+		var windows: [AXUIElement] = try windowList(of: appElement, appName: appName)
 		var main: CFTypeRef?
 		if
 			AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &main) == .success,
@@ -257,19 +231,8 @@ enum WindowActions {
 		case let .titleNotFound(available):
 			throw WindowActionError.windowTitleNotFound(filterTitle ?? "", appName, available)
 		case let .unique(index):
-			// !!!: messaging timeout 是 per-element 設定、不隨 app element 繼承——
-			// 視窗上的後續呼叫也要自己設，否則吃系統預設逾時。
-			AXUIElementSetMessagingTimeout(windows[index], messagingTimeout)
 			return (windows[index], titles[index])
 		}
-	}
-
-	private static func title(of window: AXUIElement) -> String? {
-		var value: CFTypeRef?
-		guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &value) == .success else {
-			return nil
-		}
-		return value as? String
 	}
 
 	/// 讀回視窗當前 frame（AX position／size 原生即 CG 全域左上座標）。
