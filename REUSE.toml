@@ -1,5 +1,12 @@
-# REUSE 設定：批次涵蓋無法掛 inline SPDX header 的 manifest / 設定 / 鎖定 / 文件檔。
-# 已掛 header 的 .swift 原始碼不在此列；授權全文見 LICENSES/Apache-2.0.txt。
+# REUSE 設定：批次涵蓋無法掛 inline SPDX header 的 manifest / 設定 / 鎖定 / 文件檔，
+# 外加 .swift 原始碼的授權兜底；授權全文見 LICENSES/Apache-2.0.txt。
+#
+# .swift 為何也列進來（原始碼仍逐檔掛 inline header、不改）：reuse 只讀檔首 2 KiB
+# 來偵測編碼，中文 DocC 密度高時這個切點會落在多位元組字元中間，偵測不出編碼就整份
+# 讀不到 header、判定「無授權資訊」。實測 reuse 6.2.0（CI 的 fsfe/reuse:6 同主版）
+# 對本專案一個 12 KB 的原始檔即如此，切點差幾個位元組就會復發——合規性不該繫在
+# 位元組位置上，故以本檔批次註記保底。precedence = "aggregate" ＝與 inline header
+# 併存不覆蓋。
 version = 1
 
 [[annotations]]
@@ -12,6 +19,16 @@ path = [
 	"README.md",
 	"SECURITY.md",
 	"docs/CODEOWNERS",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Unpxre (GitHub: UnpxreTW)"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = [
+	"Plugins/**/*.swift",
+	"Sources/**/*.swift",
+	"Tests/**/*.swift",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Unpxre (GitHub: UnpxreTW)"
