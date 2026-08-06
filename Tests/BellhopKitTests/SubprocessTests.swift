@@ -58,6 +58,43 @@ struct SubprocessTests {
 		#expect(elapsed < .seconds(3))
 	}
 
+	@Test("取消一個不理 SIGTERM 的子程序時，等待窗縮到寬限期量級，而非等滿 timeout")
+	func cancellationShortensWaitWhenProcessIgnoresSIGTERM() async throws {
+		// `trap '' TERM` 把 SIGTERM 設成 SIG_IGN，`exec` 後這個 disposition 仍然保留——
+		// 於是這個子程序（同一個 pid，沒有孫程序）收下 SIGTERM 卻不會退出，只有 SIGKILL 拿得下它。
+		let task: Task<Subprocess.Output, Error> = Task {
+			try await Subprocess.run(
+				"/bin/sh", arguments: ["-c", "trap '' TERM; exec sleep 30"], timeout: 30
+			)
+		}
+		try await Task.sleep(for: .milliseconds(200))
+		let clock: ContinuousClock = .init()
+		let elapsed = await clock.measure {
+			task.cancel()
+			_ = await task.result
+		}
+		// 上界貼的是「有沒有縮短等待窗」：取消後仍等滿原本的 timeout 會落在 30 秒量級。
+		#expect(elapsed < .seconds(10))
+		// 下界貼的是「有沒有先給寬限期」：不等就直接 SIGKILL 會落在毫秒量級，
+		// 那等於把「先禮後兵」一起改掉，不是本次要的行為。
+		#expect(elapsed > .seconds(1))
+	}
+
+	@Test("取消一個乖乖收 SIGTERM 的子程序時不佔用寬限期，仍是立刻返回")
+	func cancellationReturnsImmediatelyWhenProcessHonorsSIGTERM() async throws {
+		let task: Task<Subprocess.Output, Error> = Task {
+			try await Subprocess.run("/bin/sleep", arguments: ["30"], timeout: 30)
+		}
+		try await Task.sleep(for: .milliseconds(100))
+		let clock: ContinuousClock = .init()
+		let elapsed = await clock.measure {
+			task.cancel()
+			_ = await task.result
+		}
+		// 貼在寬限期（2 秒）之下：走完整個寬限期才返回的話，這條會紅。
+		#expect(elapsed < .seconds(1.5))
+	}
+
 	@Test("孫程序繼承 pipe 撐住 EOF 時，drain 逾時標記 truncated 而非無限等待")
 	func marksTruncatedWhenGrandchildHoldsPipeOpen() async throws {
 		let output = try await Subprocess.run(
