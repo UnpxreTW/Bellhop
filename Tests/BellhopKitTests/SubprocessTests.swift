@@ -58,6 +58,85 @@ struct SubprocessTests {
 		#expect(elapsed < .seconds(3))
 	}
 
+	@Test("逾時錯誤帶出終止前已收到的輸出，而非連同診斷線索一起丟棄")
+	func timeoutErrorCarriesOutputCapturedBeforeTermination() async throws {
+		do {
+			_ = try await Subprocess.run(
+				"/bin/sh",
+				arguments: ["-c", "printf whyitstuck; printf permissiondenied 1>&2; sleep 10"],
+				timeout: 0.3
+			)
+			Issue.record("預期逾時丟錯，實際卻正常返回")
+		} catch let error as SubprocessError {
+			guard case let .timedOut(_, _, captured) = error else {
+				Issue.record("預期 timedOut，實得 \(error)")
+				return
+			}
+			#expect(captured.standardOutput == "whyitstuck")
+			#expect(captured.standardError == "permissiondenied")
+			// 錯誤字面值才是真正送到呼叫端的東西：關聯值帶到但沒印出去，等於仍然丟失。
+			#expect("\(error)".contains("stdout: whyitstuck"))
+			#expect("\(error)".contains("stderr: permissiondenied"))
+		}
+	}
+
+	@Test("多位元組字元被腰斬也只壞那一個字，不是整段輸出一起消失")
+	func capturedOutputSurvivesTruncatedMultibyteCharacter() async throws {
+		do {
+			// 前六個 byte 是「中文」，尾巴的 \346 是三位元組序列的開頭、後面被切掉——
+			// 正是逾時終止會造成的形狀。用八進位是因為 /bin/sh 的 printf 不吃 \u 跳脫。
+			_ = try await Subprocess.run(
+				"/bin/sh",
+				arguments: ["-c", "printf '\\344\\270\\255\\346\\226\\207'; printf '\\346'; sleep 10"],
+				timeout: 0.3
+			)
+			Issue.record("預期逾時丟錯，實際卻正常返回")
+		} catch let error as SubprocessError {
+			guard case let .timedOut(_, _, captured) = error else {
+				Issue.record("預期 timedOut，實得 \(error)")
+				return
+			}
+			#expect(captured.standardOutput.hasPrefix("中文"))
+			#expect("\(error)".contains("中文"))
+		}
+	}
+
+	@Test("話多的子程序不會把整份輸出灌進錯誤訊息，診斷段有長度上限")
+	func diagnosticSuffixIsLengthBounded() async throws {
+		do {
+			_ = try await Subprocess.run(
+				"/bin/sh",
+				arguments: ["-c", "head -c 200000 /dev/zero | tr '\\0' x; sleep 10"],
+				timeout: 0.5
+			)
+			Issue.record("預期逾時丟錯，實際卻正常返回")
+		} catch let error as SubprocessError {
+			guard case let .timedOut(_, _, captured) = error else {
+				Issue.record("預期 timedOut，實得 \(error)")
+				return
+			}
+			// 關聯值保留全文（呼叫端要幾行自己決定），只有進錯誤訊息那份被裁短。
+			// 這裡取下界而非等於 200_000：機器忙時 0.5 秒內未必寫完 200KB，斷言全等會變成
+			// 在測機器速度。「保留全文」本身另由無逾時的 capturesOutputsAndStatus 覆蓋。
+			#expect(captured.standardOutput.count > 2000)
+			// 貼著實際界斷言：只寫「小於某個寬鬆值」的話，上限被調鬆時測試照樣綠。
+			let keptCharacterCount: Int = captured.diagnosticSuffix.filter { $0 == "x" }.count
+			#expect(keptCharacterCount == 2000)
+			#expect(captured.diagnosticSuffix.contains("…"))
+		}
+	}
+
+	@Test("無輸出可報時，逾時訊息與加上診斷段之前逐字相同")
+	func timeoutMessageUnchangedWhenNothingWasCaptured() async throws {
+		do {
+			_ = try await Subprocess.run("/bin/sleep", arguments: ["10"], timeout: 0.3)
+			Issue.record("預期逾時丟錯，實際卻正常返回")
+		} catch let error as SubprocessError {
+			#expect("\(error)".hasSuffix("then retry."))
+			#expect(!"\(error)".contains("Output captured before termination"))
+		}
+	}
+
 	@Test("孫程序繼承 pipe 撐住 EOF 時，drain 逾時標記 truncated 而非無限等待")
 	func marksTruncatedWhenGrandchildHoldsPipeOpen() async throws {
 		let output = try await Subprocess.run(
