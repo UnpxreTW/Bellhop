@@ -35,7 +35,9 @@ enum Subprocess {
 
 	/// 執行子程序並收齊輸出。
 	///
-	/// 呼叫端 Task 被 cancel 時會對子程序送 `terminate()`，不會放著跑到自然結束或逾時。
+	/// 呼叫端 Task 被 cancel 時會對子程序送 `terminate()`，不會放著跑到自然結束或逾時；
+	/// 送出後只再等一個 ``killGracePeriod``，不理 SIGTERM 的子程序會就地升級 SIGKILL，
+	/// 而不是繼續佔著原本的逾時窗。
 	///
 	/// - Parameters:
 	///   - executablePath: 執行檔絕對路徑。
@@ -95,6 +97,19 @@ enum Subprocess {
 	/// 可在任意執行緒呼叫，是安全的。
 	private final class ProcessBox: @unchecked Sendable {
 
+		/// 子程序退出、或呼叫端取消時被喚醒。
+		///
+		/// `runSync` 的主等待窗等的是這個、而不是只等子程序退出：只等退出的話，取消訊號送出後
+		/// 若子程序不理 SIGTERM，這裡要等滿整個 `timeout` 才會發現、才會升級 SIGKILL。
+		let wakeup: DispatchSemaphore = .init(value: 0)
+
+		/// 是否已收到取消。`runSync` 被喚醒後靠它分辨「子程序自己結束了」與「呼叫端取消了」。
+		var isCancelled: Bool {
+			lock.lock()
+			defer { lock.unlock() }
+			return cancelled
+		}
+
 		private let lock: NSLock = .init()
 		private var process: Process?
 		private var cancelled: Bool = false
@@ -113,10 +128,15 @@ enum Subprocess {
 		/// Task cancellation 觸發；process 已就緒就直接 terminate()，否則記旗標待 register() 補送。
 		func cancel() {
 			lock.lock()
+			let alreadyCancelled: Bool = cancelled
 			cancelled = true
 			let existing: Process? = process
 			lock.unlock()
 			existing?.terminate()
+			// 一次取消喚醒一次就夠；`onCancel` 雖然只會觸發一次，但這裡不假設呼叫次數。
+			if !alreadyCancelled {
+				wakeup.signal()
+			}
 		}
 	}
 
@@ -153,22 +173,29 @@ enum Subprocess {
 		let errBuffer = drain(stderr, group: drains)
 
 		let terminated: DispatchSemaphore = .init(value: 0)
-		process.terminationHandler = { _ in terminated.signal() }
+		process.terminationHandler = { _ in
+			terminated.signal()
+			processBox.wakeup.signal()
+		}
 
 		try process.run()
 		processBox.register(process)
 
-		var timedOut = false
+		var timedOut: Bool = false
 		var abandoned: Bool = false
-		if terminated.wait(timeout: .now() + timeout) == .timedOut {
+		var abandonedAfter: TimeInterval = 0
+		if processBox.wakeup.wait(timeout: .now() + timeout) == .timedOut {
+			// 等滿逾時窗仍無動靜：SIGTERM 由這裡送出，再接收尾升級。
 			timedOut = true
 			process.terminate()
-			if terminated.wait(timeout: .now() + killGracePeriod) == .timedOut {
-				kill(process.processIdentifier, SIGKILL)
-				if terminated.wait(timeout: .now() + killGracePeriod) == .timedOut {
-					abandoned = true
-				}
-			}
+			abandoned = awaitExitAfterTermination(process, terminated: terminated)
+			abandonedAfter = timeout + killGracePeriod * 2
+		} else if processBox.isCancelled {
+			// 被取消喚醒：SIGTERM 已由 `ProcessBox` 送出（先 cancel 後 spawn 的順序由 register()
+			// 補送），這裡直接接收尾升級——不再等滿原本的逾時窗。子程序不理 SIGTERM 時，
+			// 這就是「等一個寬限期」與「等滿 timeout」的差別。
+			abandoned = awaitExitAfterTermination(process, terminated: terminated)
+			abandonedAfter = killGracePeriod * 2
 		}
 		let drainResult: DispatchTimeoutResult = drains.wait(timeout: .now() + drainGracePeriod)
 		stdout.fileHandleForReading.readabilityHandler = nil
@@ -186,19 +213,26 @@ enum Subprocess {
 			standardOutput: standardOutput, standardError: standardError, truncated: truncated
 		)
 		if abandoned {
-			throw SubprocessError.abandoned(
-				executablePath, after: timeout + killGracePeriod * 2, captured: captured
-			)
+			throw SubprocessError.abandoned(executablePath, after: abandonedAfter, captured: captured)
 		}
 		if timedOut {
 			throw SubprocessError.timedOut(executablePath, after: timeout, captured: captured)
 		}
 		return Output(
 			status: process.terminationStatus,
-			standardOutput: standardOutput,
-			standardError: standardError,
-			truncated: truncated
+			standardOutput: standardOutput, standardError: standardError, truncated: truncated
 		)
+	}
+
+	/// SIGTERM 已送出後等子程序退出：寬限期內沒退就升級 SIGKILL，再等一個寬限期仍沒退則放棄。
+	///
+	/// 逾時路徑與取消路徑共用同一段收尾，差別只在誰送出 SIGTERM、以及在此之前等了多久。
+	///
+	/// - Returns: 是否放棄等待（連 SIGKILL 都沒能讓子程序退出）。
+	private static func awaitExitAfterTermination(_ process: Process, terminated: DispatchSemaphore) -> Bool {
+		guard terminated.wait(timeout: .now() + killGracePeriod) == .timedOut else { return false }
+		kill(process.processIdentifier, SIGKILL)
+		return terminated.wait(timeout: .now() + killGracePeriod) == .timedOut
 	}
 
 	/// 持續讀空 pipe 直到 EOF；回傳累積輸出的 buffer。
@@ -227,8 +261,8 @@ enum SubprocessError: Error {
 	case timedOut(String, after: TimeInterval, captured: CapturedOutput)
 
 	/// SIGKILL 送出後最終 `wait()` 仍逾時——子程序可能卡在不可中斷的核心睡眠態，
-	/// Bellhop 放棄等待、不再無限阻塞。關聯值為執行檔路徑、放棄前的總等待秒數，
-	/// 與放棄前已收到的部分輸出。
+	/// Bellhop 放棄等待、不再無限阻塞。關聯值為執行檔路徑、放棄前的等待秒數
+	/// （逾時路徑含逾時窗本身，取消路徑自送出 SIGTERM 起算），與放棄前已收到的部分輸出。
 	case abandoned(String, after: TimeInterval, captured: CapturedOutput)
 }
 
