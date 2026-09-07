@@ -13,7 +13,7 @@ import MCP
 public enum BellhopServer {
 
 	/// MCP handshake 時回報給 client 的 server 名稱。
-	public static let name = "bellhop"
+	public static let name: String = "bellhop"
 
 	/// Server 版本號；build 時由 `BellhopVersionPlugin` 從 git tag 注入（單一來源）。
 	public static let version: String = BellhopVersion.current
