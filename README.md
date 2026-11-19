@@ -38,7 +38,7 @@ Bellhop 最初是為了一個情境而生：**人在手機上，透過 Claude ap
 
 `window_*` 工具是跨 App 的通用視窗面：`window_list` 走 CGWindowList 唯讀讀取、**不需要任何新權限**——但視窗**標題**只在執行 Bellhop 的 app 已授 Screen Recording 權限時讀得到（幾何與 owner 資訊免權限）。`window_save_layout` 把快照寫進 `~/Library/Application Support/Bellhop/layouts/<name>.json`。
 
-會**動**視窗的工具（`window_focus`、`window_set_frame`）直呼 Accessibility API（`AXUIElement`）、不走 osascript——**需要 macOS Accessibility 權限**（掛在 spawn Bellhop 的宿主 app 頭上，未授權時工具會回報引導、不會卡住），且只搆得到**當前 Space** 的視窗、螢幕鎖定下無作用（不是 lock-safe）。`window_set_frame` 寫入後會回讀驗收、回報實際落定的 frame（app 可能強制最小尺寸或尺寸級距）。原生排列（`window_arrange`）與 layout 還原（`window_restore_layout`）接口已定型、待選單尋址實機驗證後推出，本版尚未曝光。
+會**動**視窗的工具（`window_focus`、`window_set_frame`）直呼 Accessibility API（`AXUIElement`）、不走 osascript——**需要 macOS Accessibility 權限**（掛在 spawn Bellhop 的宿主 app 頭上，未授權時工具會回報引導、不會卡住），且只搆得到**當前 Space** 的視窗、螢幕鎖定下無作用（不是 lock-safe）。`window_set_frame` 寫入後會回讀驗收、回報實際落定的 frame（app 可能強制最小尺寸或尺寸級距）。原生排列（`window_arrange`）與 layout 還原（`window_restore_layout`）接口已定型、待選單尋址實機驗證後推出，本版尚未曝光。唯讀檔案工具（`file_stat`、`file_list`、`file_read`）與其存取政策檢查同樣已在 library 內、尚未曝光，政策格式見 [docs/file-access-policy.md](docs/file-access-policy.md)。
 
 ## 安裝與使用
 
