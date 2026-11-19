@@ -14,6 +14,8 @@ Bellhop 以**啟動它的使用者權限**運行，透過 `osascript` 對 Termin
 - `window_list`、`window_layout_list`——唯讀列舉跨 App 視窗與已存 layout。視窗**標題**需宿主已授 Screen Recording 權限才讀得到；標題可能含機敏資訊（文件名、網頁標題），是一條讀取路徑。
 - `window_save_layout`——把視窗幾何快照（含 app 名與視窗標題）寫進 `~/Library/Application Support/Bellhop/layouts/`；屬本機狀態檔、不外傳。
 
+唯讀檔案工具（`file_stat`、`file_list`、`file_read`）與其存取政策模組已在 library 內，但尚未註冊為工具，不構成上列以外的讀取路徑。
+
 因此使用上請注意：
 
 - **只把 Bellhop 註冊給你信任的 MCP client。** 一個會讀取不受信任內容（例如 connected folder 內的檔案、網頁、郵件）的 agent，可能被注入的指示誘導去呼叫這些工具。
